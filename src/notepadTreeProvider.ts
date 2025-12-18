@@ -38,7 +38,7 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem> {
             return Promise.resolve([]);
         }
 
-        const targetDir = element ? element.resourceUri.fsPath : baseDir;
+        const targetDir = element ? element.actualPath : baseDir;
         return Promise.resolve(this.getFilesInDirectory(targetDir));
     }
 

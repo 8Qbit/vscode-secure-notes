@@ -26,7 +26,7 @@
         "secureNotes.encryption.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable encryption for notes. When enabled, only .enc files will be shown."
+          "description": "Enable encryption for notes. When enabled, only *.enc files will be shown."
         },
         "secureNotes.encryption.publicKeyPath": {
           "type": "string",
@@ -58,18 +58,6 @@
         }
       ]
     },
-    "customEditors": [
-      {
-        "viewType": "secureNotes.encryptedEditor",
-        "displayName": "Encrypted Note Editor",
-        "selector": [
-          {
-            "filenamePattern": "*.enc"
-          }
-        ],
-        "priority": "default"
-      }
-    ],
     "commands": [
       {
         "command": "secureNotes.createFile",

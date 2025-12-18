@@ -6,7 +6,8 @@ import { NoteItem } from './noteItem';
 export class NotepadCommands {
     constructor(
         private getBaseDirectory: () => string | undefined,
-        private refresh: () => void
+        private refresh: () => void,
+        private onFileMovedOrDeleted?: (oldPath: string) => void
     ) {}
 
     async createFile(item?: NoteItem): Promise<void> {
@@ -76,12 +77,12 @@ export class NotepadCommands {
     }
 
     async delete(item: NoteItem): Promise<void> {
-        if (!item || !item.resourceUri) {
+        if (!item) {
             vscode.window.showErrorMessage('No item selected');
             return;
         }
 
-        const itemPath = item.resourceUri.fsPath;
+        const itemPath = item.actualPath;
         const itemName = path.basename(itemPath);
         const itemType = item.isDirectory ? 'folder' : 'file';
 
@@ -96,6 +97,11 @@ export class NotepadCommands {
         }
 
         try {
+            // Clean up temp file if open
+            if (this.onFileMovedOrDeleted) {
+                this.onFileMovedOrDeleted(itemPath);
+            }
+            
             if (item.isDirectory) {
                 fs.rmSync(itemPath, { recursive: true, force: true });
             } else {
@@ -109,31 +115,42 @@ export class NotepadCommands {
     }
 
     async rename(item: NoteItem): Promise<void> {
-        if (!item || !item.resourceUri) {
+        if (!item) {
             vscode.window.showErrorMessage('No item selected');
             return;
         }
 
-        const oldPath = item.resourceUri.fsPath;
+        const oldPath = item.actualPath;
         const oldName = path.basename(oldPath);
         const parentDir = path.dirname(oldPath);
 
-        const newName = await vscode.window.showInputBox({
+        // For display, show the name without .enc suffix for encrypted files
+        const displayOldName = item.isEncrypted ? oldName.replace(/\.enc$/, '') : oldName;
+        const extensionStart = displayOldName.lastIndexOf('.');
+
+        const newDisplayName = await vscode.window.showInputBox({
             prompt: 'Enter the new name',
-            value: oldName,
-            valueSelection: [0, oldName.lastIndexOf('.') > 0 ? oldName.lastIndexOf('.') : oldName.length]
+            value: displayOldName,
+            valueSelection: [0, extensionStart > 0 ? extensionStart : displayOldName.length]
         });
 
-        if (!newName || newName === oldName) {
+        if (!newDisplayName || newDisplayName === displayOldName) {
             return;
         }
 
+        // For encrypted files, add .enc suffix back to the new name
+        const newName = item.isEncrypted ? newDisplayName + '.enc' : newDisplayName;
         const newPath = path.join(parentDir, newName);
 
         try {
             if (fs.existsSync(newPath)) {
-                vscode.window.showErrorMessage(`"${newName}" already exists`);
+                vscode.window.showErrorMessage(`"${newDisplayName}" already exists`);
                 return;
+            }
+
+            // Clean up temp file if open
+            if (this.onFileMovedOrDeleted) {
+                this.onFileMovedOrDeleted(oldPath);
             }
 
             fs.renameSync(oldPath, newPath);
@@ -164,11 +181,9 @@ export class NotepadCommands {
     }
 
     private getTargetDirectory(item?: NoteItem): string | undefined {
-        if (item && item.resourceUri) {
-            return item.isDirectory ? item.resourceUri.fsPath : path.dirname(item.resourceUri.fsPath);
+        if (item) {
+            return item.isDirectory ? item.actualPath : path.dirname(item.actualPath);
         }
         return this.getBaseDirectory();
     }
 }
-
-

@@ -98,16 +98,20 @@ Or manually configure in settings:
 - **Asymmetric**: RSA-OAEP with SHA-256 (4096-bit keys)
 - **File Format**: JSON containing encrypted key, IV, auth tag, and content
 
-### In-Memory Security
+### In-Memory Security (Linux)
 
-- Decrypted content is stored only in memory
-- Files on disk are always encrypted (`.enc` extension)
+- Decrypted files are stored in `/dev/shm` (RAM-based tmpfs)
+- **Decrypted content never touches persistent storage**
+- Files on disk are always encrypted (`.enc` suffix, e.g., `notes.md.enc`)
 - Memory is cleared when you lock notes or close VS Code
-- No temporary files are created
+- Temp files are automatically cleaned up on extension deactivation
+- Uses native VS Code editor for full feature support
+
+**Note**: This feature requires Linux with `/dev/shm` support.
 
 ### File Format
 
-Encrypted files (`.enc`) are stored as JSON:
+Encrypted files (`*.enc`) are stored as JSON:
 
 ```json
 {

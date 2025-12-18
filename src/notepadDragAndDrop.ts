@@ -9,7 +9,8 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
 
     constructor(
         private getBaseDirectory: () => string | undefined,
-        private refresh: () => void
+        private refresh: () => void,
+        private onFileMoved?: (oldPath: string) => void
     ) {}
 
     handleDrag(
@@ -17,8 +18,8 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
         dataTransfer: vscode.DataTransfer,
         _token: vscode.CancellationToken
     ): void | Thenable<void> {
-        // Store the dragged items' paths in the data transfer
-        const paths = source.map(item => item.resourceUri.fsPath);
+        // Store the dragged items' actual paths in the data transfer
+        const paths = source.map(item => item.actualPath);
         dataTransfer.set(
             'application/vnd.code.tree.secureNotesTree',
             new vscode.DataTransferItem(paths)
@@ -46,8 +47,8 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
             // If dropped on a folder, use that folder
             // If dropped on a file, use the file's parent directory
             targetDir = target.isDirectory 
-                ? target.resourceUri.fsPath 
-                : path.dirname(target.resourceUri.fsPath);
+                ? target.actualPath 
+                : path.dirname(target.actualPath);
         } else {
             // If dropped on empty space, use base directory
             const baseDir = this.getBaseDirectory();
@@ -89,6 +90,11 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
             }
 
             try {
+                // Notify that file is being moved (close temp file if open)
+                if (this.onFileMoved) {
+                    this.onFileMoved(sourcePath);
+                }
+                
                 fs.renameSync(sourcePath, newPath);
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to move "${fileName}": ${error}`);
