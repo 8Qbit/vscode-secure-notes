@@ -12,7 +12,7 @@ export class NotepadCommands {
     async createFile(item?: NoteItem): Promise<void> {
         const targetDir = this.getTargetDirectory(item);
         if (!targetDir) {
-            vscode.window.showErrorMessage('Please set a base directory first using "Notepad: Set Base Directory"');
+            vscode.window.showErrorMessage('Please set a base directory first using "SecureNotes: Set Base Directory"');
             return;
         }
 
@@ -47,7 +47,7 @@ export class NotepadCommands {
     async createFolder(item?: NoteItem): Promise<void> {
         const targetDir = this.getTargetDirectory(item);
         if (!targetDir) {
-            vscode.window.showErrorMessage('Please set a base directory first using "Notepad: Set Base Directory"');
+            vscode.window.showErrorMessage('Please set a base directory first using "SecureNotes: Set Base Directory"');
             return;
         }
 
@@ -153,13 +153,13 @@ export class NotepadCommands {
 
         if (result && result[0]) {
             const selectedPath = result[0].fsPath;
-            await vscode.workspace.getConfiguration('notepad').update(
+            await vscode.workspace.getConfiguration('secureNotes').update(
                 'baseDirectory',
                 selectedPath,
                 vscode.ConfigurationTarget.Global
             );
             this.refresh();
-            vscode.window.showInformationMessage(`Notepad base directory set to: ${selectedPath}`);
+            vscode.window.showInformationMessage(`SecureNotes base directory set to: ${selectedPath}`);
         }
     }
 
@@ -170,4 +170,5 @@ export class NotepadCommands {
         return this.getBaseDirectory();
     }
 }
+
 

@@ -4,8 +4,8 @@ import * as path from 'path';
 import { NoteItem } from './noteItem';
 
 export class NotepadDragAndDropController implements vscode.TreeDragAndDropController<NoteItem> {
-    readonly dropMimeTypes = ['application/vnd.code.tree.notepadTree'];
-    readonly dragMimeTypes = ['application/vnd.code.tree.notepadTree'];
+    readonly dropMimeTypes = ['application/vnd.code.tree.secureNotesTree'];
+    readonly dragMimeTypes = ['application/vnd.code.tree.secureNotesTree'];
 
     constructor(
         private getBaseDirectory: () => string | undefined,
@@ -20,7 +20,7 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
         // Store the dragged items' paths in the data transfer
         const paths = source.map(item => item.resourceUri.fsPath);
         dataTransfer.set(
-            'application/vnd.code.tree.notepadTree',
+            'application/vnd.code.tree.secureNotesTree',
             new vscode.DataTransferItem(paths)
         );
     }
@@ -30,7 +30,7 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
         dataTransfer: vscode.DataTransfer,
         _token: vscode.CancellationToken
     ): Promise<void> {
-        const transferItem = dataTransfer.get('application/vnd.code.tree.notepadTree');
+        const transferItem = dataTransfer.get('application/vnd.code.tree.secureNotesTree');
         if (!transferItem) {
             return;
         }
@@ -98,4 +98,5 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
         this.refresh();
     }
 }
+
 

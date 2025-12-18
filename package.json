@@ -1,8 +1,8 @@
 {
-  "name": "cursor-notepad",
-  "displayName": "Cursor Notepad",
-  "description": "A simple notepad extension with configurable directory tree view",
-  "version": "0.0.1",
+  "name": "secure-notes",
+  "displayName": "SecureNotes",
+  "description": "A secure notes extension with encrypted storage and RSA+AES encryption",
+  "version": "0.1.0",
   "publisher": "panylund",
   "engines": {
     "vscode": "^1.85.0"
@@ -16,100 +16,169 @@
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Notepad",
+      "title": "SecureNotes",
       "properties": {
-        "notepad.baseDirectory": {
+        "secureNotes.baseDirectory": {
           "type": "string",
           "default": "",
-          "description": "The base directory for your notes"
+          "description": "The base directory for your secure notes"
+        },
+        "secureNotes.encryption.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable encryption for notes. When enabled, only .enc files will be shown."
+        },
+        "secureNotes.encryption.publicKeyPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to RSA public key file (PEM format) for encrypting notes"
+        },
+        "secureNotes.encryption.privateKeyPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to RSA private key file (PEM format) for decrypting notes"
         }
       }
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "notepad",
-          "title": "Notepad",
-          "icon": "$(notebook)"
+          "id": "secureNotes",
+          "title": "SecureNotes",
+          "icon": "$(shield)"
         }
       ]
     },
     "views": {
-      "notepad": [
+      "secureNotes": [
         {
-          "id": "notepadTree",
+          "id": "secureNotesTree",
           "name": "Notes",
-          "contextualTitle": "Notepad"
+          "contextualTitle": "SecureNotes"
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "secureNotes.encryptedEditor",
+        "displayName": "Encrypted Note Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.enc"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
-        "command": "notepad.createFile",
+        "command": "secureNotes.createFile",
         "title": "New Note",
         "icon": "$(new-file)"
       },
       {
-        "command": "notepad.createFolder",
+        "command": "secureNotes.createFolder",
         "title": "New Folder",
         "icon": "$(new-folder)"
       },
       {
-        "command": "notepad.delete",
+        "command": "secureNotes.delete",
         "title": "Delete"
       },
       {
-        "command": "notepad.rename",
+        "command": "secureNotes.rename",
         "title": "Rename"
       },
       {
-        "command": "notepad.refresh",
+        "command": "secureNotes.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
       },
       {
-        "command": "notepad.setBaseDirectory",
-        "title": "Notepad: Set Base Directory"
+        "command": "secureNotes.setBaseDirectory",
+        "title": "SecureNotes: Set Base Directory"
+      },
+      {
+        "command": "secureNotes.openEncrypted",
+        "title": "Open Encrypted Note"
+      },
+      {
+        "command": "secureNotes.unlock",
+        "title": "SecureNotes: Unlock Notes",
+        "icon": "$(unlock)"
+      },
+      {
+        "command": "secureNotes.lock",
+        "title": "SecureNotes: Lock Notes",
+        "icon": "$(lock)"
+      },
+      {
+        "command": "secureNotes.generateKeyPair",
+        "title": "SecureNotes: Generate Key Pair"
+      },
+      {
+        "command": "secureNotes.encryptDirectory",
+        "title": "SecureNotes: Encrypt All Notes"
+      },
+      {
+        "command": "secureNotes.decryptDirectory",
+        "title": "SecureNotes: Export Decrypted Notes"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "notepad.createFile",
-          "when": "view == notepadTree",
+          "command": "secureNotes.createFile",
+          "when": "view == secureNotesTree",
           "group": "navigation@1"
         },
         {
-          "command": "notepad.createFolder",
-          "when": "view == notepadTree",
+          "command": "secureNotes.createFolder",
+          "when": "view == secureNotesTree",
           "group": "navigation@2"
         },
         {
-          "command": "notepad.refresh",
-          "when": "view == notepadTree",
+          "command": "secureNotes.refresh",
+          "when": "view == secureNotesTree",
           "group": "navigation@3"
+        },
+        {
+          "command": "secureNotes.lock",
+          "when": "view == secureNotesTree && config.secureNotes.encryption.enabled",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
         {
-          "command": "notepad.createFile",
-          "when": "view == notepadTree && viewItem == folder",
+          "command": "secureNotes.createFile",
+          "when": "view == secureNotesTree && viewItem == folder",
           "group": "1_new@1"
         },
         {
-          "command": "notepad.createFolder",
-          "when": "view == notepadTree && viewItem == folder",
+          "command": "secureNotes.createFolder",
+          "when": "view == secureNotesTree && viewItem == folder",
           "group": "1_new@2"
         },
         {
-          "command": "notepad.rename",
-          "when": "view == notepadTree",
+          "command": "secureNotes.rename",
+          "when": "view == secureNotesTree && viewItem != encryptedFile",
           "group": "7_modification@1"
         },
         {
-          "command": "notepad.delete",
-          "when": "view == notepadTree",
+          "command": "secureNotes.rename",
+          "when": "view == secureNotesTree && viewItem == encryptedFile",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "secureNotes.delete",
+          "when": "view == secureNotesTree",
           "group": "7_modification@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "secureNotes.openEncrypted",
+          "when": "false"
         }
       ]
     }
@@ -131,4 +200,3 @@
     "typescript": "^5.3.2"
   }
 }
-

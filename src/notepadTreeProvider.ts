@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NoteItem } from './noteItem';
+import { NotepadEncryption } from './encryption';
 
 export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<NoteItem | undefined | null | void> = 
@@ -42,17 +43,31 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem> {
     }
 
     getBaseDirectory(): string | undefined {
-        const config = vscode.workspace.getConfiguration('notepad');
+        const config = vscode.workspace.getConfiguration('secureNotes');
         const baseDir = config.get<string>('baseDirectory');
         return baseDir && baseDir.trim() !== '' ? baseDir : undefined;
     }
 
     private getFilesInDirectory(dirPath: string): NoteItem[] {
+        const encryptionEnabled = NotepadEncryption.isEnabled();
+
         try {
             const entries = fs.readdirSync(dirPath, { withFileTypes: true });
             
             const items: NoteItem[] = entries
-                .filter(entry => !entry.name.startsWith('.')) // Hide hidden files
+                .filter(entry => {
+                    // Hide hidden files
+                    if (entry.name.startsWith('.')) {
+                        return false;
+                    }
+                    
+                    // If encryption is enabled, only show directories and .enc files
+                    if (encryptionEnabled && !entry.isDirectory()) {
+                        return entry.name.endsWith('.enc');
+                    }
+                    
+                    return true;
+                })
                 .map(entry => {
                     const fullPath = path.join(dirPath, entry.name);
                     return NoteItem.fromPath(fullPath, entry.isDirectory());
@@ -94,7 +109,8 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem> {
 
     private setupConfigWatcher(): void {
         this.configWatcher = vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('notepad.baseDirectory')) {
+            if (e.affectsConfiguration('secureNotes.baseDirectory') ||
+                e.affectsConfiguration('secureNotes.encryption')) {
                 this.setupFileWatcher();
                 this.refresh();
             }
@@ -116,4 +132,3 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem> {
         this._onDidChangeTreeData.dispose();
     }
 }
-
