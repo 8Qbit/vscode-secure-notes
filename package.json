@@ -1,0 +1,134 @@
+{
+  "name": "cursor-notepad",
+  "displayName": "Cursor Notepad",
+  "description": "A simple notepad extension with configurable directory tree view",
+  "version": "0.0.1",
+  "publisher": "panylund",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Notepad",
+      "properties": {
+        "notepad.baseDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "The base directory for your notes"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "notepad",
+          "title": "Notepad",
+          "icon": "$(notebook)"
+        }
+      ]
+    },
+    "views": {
+      "notepad": [
+        {
+          "id": "notepadTree",
+          "name": "Notes",
+          "contextualTitle": "Notepad"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "notepad.createFile",
+        "title": "New Note",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "notepad.createFolder",
+        "title": "New Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "notepad.delete",
+        "title": "Delete"
+      },
+      {
+        "command": "notepad.rename",
+        "title": "Rename"
+      },
+      {
+        "command": "notepad.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "notepad.setBaseDirectory",
+        "title": "Notepad: Set Base Directory"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "notepad.createFile",
+          "when": "view == notepadTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "notepad.createFolder",
+          "when": "view == notepadTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "notepad.refresh",
+          "when": "view == notepadTree",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "notepad.createFile",
+          "when": "view == notepadTree && viewItem == folder",
+          "group": "1_new@1"
+        },
+        {
+          "command": "notepad.createFolder",
+          "when": "view == notepadTree && viewItem == folder",
+          "group": "1_new@2"
+        },
+        {
+          "command": "notepad.rename",
+          "when": "view == notepadTree",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "notepad.delete",
+          "when": "view == notepadTree",
+          "group": "7_modification@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "package": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "esbuild": "^0.19.8",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.2"
+  }
+}
+
