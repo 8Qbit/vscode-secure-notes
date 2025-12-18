@@ -2,6 +2,12 @@
 
 A secure notes extension for VS Code/Cursor with end-to-end encryption support.
 
+### Why This Exists
+
+I've always wanted "The Perfect Note Taking App" that lives right inside my editor. Every existing extension came close but none quite scratched the itch. So one evening (fueled by mass quantities of mass-produced Finnish lager) I decided to vibe-code my own. Here we are.
+
+Then, for reasons I can't fully explain, I got obsessed with having all notes encrypted at rest. I explored VS Code's Virtual File System for cross-platform support, but it didn't play nice with... things. Since I mainly work on Linux anyway, the extension now uses `/dev/shm` as a RAM-based temporary filesystem—your decrypted notes never touch the disk.
+
 [![Build and Release](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml/badge.svg)](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml)
 
 ## Features
@@ -256,6 +262,14 @@ npm run lint     # Run linter
 
 - **Linux Only**: Encrypted editing requires `/dev/shm`
 - **No Windows Support**: Currently no secure temp storage for Windows
+
+## Roadmap
+
+- [ ] **Windows Support**: Implement secure temp storage for Windows (DPAPI, VFS, or in-memory editing)
+- [ ] **macOS Support**: Implement secure temp storage for macOS (encrypted APFS, Keychain integration, or VFS)
+- [ ] **Cross-Platform VFS**: Explore VS Code's Virtual File System API for universal support
+- [ ] **Unit Tests**: Add test coverage for encryption and file operations
+- [ ] **VS Code Marketplace**: Publish to the official extension marketplace
 
 ## License
 
