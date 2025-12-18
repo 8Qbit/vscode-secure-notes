@@ -2,7 +2,7 @@
 
 A secure notes extension for VS Code/Cursor with end-to-end encryption support.
 
-[![Build and Release](https://github.com/panylund/cursor-notepad/actions/workflows/build.yml/badge.svg)](https://github.com/panylund/cursor-notepad/actions/workflows/build.yml)
+[![Build and Release](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml/badge.svg)](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml)
 
 ## Features
 
@@ -18,7 +18,7 @@ A secure notes extension for VS Code/Cursor with end-to-end encryption support.
 
 ### Option 1: Download from Releases (Recommended)
 
-1. Go to the [Releases page](https://github.com/panylund/cursor-notepad/releases)
+1. Go to the [Releases page](https://github.com/8Qbit/vscode-secure-notes/releases)
 2. Download the latest `.vsix` file
 3. Install in Cursor/VS Code:
 
@@ -41,7 +41,7 @@ A secure notes extension for VS Code/Cursor with end-to-end encryption support.
 
 ```bash
 # Clone the repository
-git clone https://github.com/panylund/cursor-notepad.git
+git clone https://github.com/8Qbit/vscode-secure-notes.git
 cd cursor-notepad
 
 # Install dependencies
@@ -60,7 +60,7 @@ cursor --install-extension secure-notes-*.vsix
 
 ```bash
 # Clone and install
-git clone https://github.com/panylund/cursor-notepad.git
+git clone https://github.com/8Qbit/vscode-secure-notes.git
 cd cursor-notepad
 npm install
 npm run compile
