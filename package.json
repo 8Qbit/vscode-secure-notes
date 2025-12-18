@@ -37,6 +37,12 @@
           "type": "string",
           "default": "",
           "description": "Path to RSA private key file (PEM format) for decrypting notes"
+        },
+        "secureNotes.encryption.sessionTimeoutMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "Auto-lock timeout in minutes. Set to 0 to disable auto-lock."
         }
       }
     },

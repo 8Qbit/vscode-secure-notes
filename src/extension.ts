@@ -1,3 +1,10 @@
+/**
+ * SecureNotes Extension - Main Entry Point
+ * 
+ * A secure notes extension for VS Code/Cursor with encryption support.
+ * Files are encrypted at rest and decrypted in RAM for editing.
+ */
+
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -7,29 +14,47 @@ import { NotepadDragAndDropController } from './notepadDragAndDrop';
 import { NotepadEncryption } from './encryption';
 import { TempFileManager } from './tempFileManager';
 import { NoteItem } from './noteItem';
+import { logger, LogLevel } from './logger';
+import { getAllFiles } from './fileUtils';
 
+// Global state
 let encryption: NotepadEncryption;
 let tempFileManager: TempFileManager | undefined;
+let outputChannel: vscode.OutputChannel;
 
+/**
+ * Extension activation
+ */
 export function activate(context: vscode.ExtensionContext) {
-    console.log('SecureNotes extension is now active');
+    // Create output channel for logging
+    outputChannel = vscode.window.createOutputChannel('SecureNotes');
+    logger.initialize(outputChannel);
+    
+    // Set log level based on development mode
+    if (context.extensionMode === vscode.ExtensionMode.Development) {
+        logger.setLevel(LogLevel.DEBUG);
+    }
 
-    // Initialize encryption components
+    logger.info('SecureNotes extension activating', 'Extension');
+
+    // Initialize encryption
     encryption = new NotepadEncryption();
+    context.subscriptions.push(encryption);
 
-    // Check if /dev/shm is available (Linux)
+    // Initialize temp file manager if available
     if (TempFileManager.isAvailable()) {
         tempFileManager = new TempFileManager(encryption);
-        console.log('SecureNotes: Using /dev/shm for secure temp files');
+        logger.info('Using /dev/shm for secure temp files', 'Extension');
     } else {
-        console.log('SecureNotes: /dev/shm not available, encrypted editing disabled');
+        logger.warn('/dev/shm not available, encrypted editing disabled', 'Extension');
         vscode.window.showWarningMessage(
             'SecureNotes: /dev/shm is not available. Encrypted file editing requires Linux with /dev/shm.'
         );
     }
 
-    // Create the tree data provider
+    // Create tree data provider
     const treeProvider = new NotepadTreeProvider();
+    context.subscriptions.push(treeProvider);
 
     // Create drag and drop controller
     const dragAndDropController = new NotepadDragAndDropController(
@@ -38,59 +63,73 @@ export function activate(context: vscode.ExtensionContext) {
         (oldPath: string) => tempFileManager?.onFileMovedOrDeleted(oldPath)
     );
 
-    // Register the tree view with drag and drop support
+    // Register tree view
     const treeView = vscode.window.createTreeView('secureNotesTree', {
         treeDataProvider: treeProvider,
         showCollapseAll: true,
         canSelectMany: true,
         dragAndDropController: dragAndDropController
     });
+    context.subscriptions.push(treeView);
 
     // Create command handlers
-    const commands = new NotepadCommands(
-        () => treeProvider.getBaseDirectory(),
-        () => treeProvider.refresh(),
-        (oldPath: string) => tempFileManager?.onFileMovedOrDeleted(oldPath)
-    );
+    const commands = new NotepadCommands({
+        getBaseDirectory: () => treeProvider.getBaseDirectory(),
+        refresh: () => treeProvider.refresh(),
+        onFileMovedOrDeleted: (oldPath: string) => tempFileManager?.onFileMovedOrDeleted(oldPath)
+    });
 
-    // Register commands
+    // Register all commands
+    registerCommands(context, commands, treeProvider);
+
+    // Show welcome message if no base directory is configured
+    showWelcomeMessage(treeProvider);
+
+    logger.info('SecureNotes extension activated', 'Extension');
+}
+
+/**
+ * Register all extension commands
+ */
+function registerCommands(
+    context: vscode.ExtensionContext,
+    commands: NotepadCommands,
+    treeProvider: NotepadTreeProvider
+): void {
     context.subscriptions.push(
-        treeView,
-        treeProvider,
-
-        // Basic file operations
-        vscode.commands.registerCommand('secureNotes.createFile', (item) => 
-            NotepadEncryption.isEnabled() 
+        // File operations
+        vscode.commands.registerCommand('secureNotes.createFile', (item) =>
+            NotepadEncryption.isEnabled()
                 ? createEncryptedFile(item, treeProvider)
                 : commands.createFile(item)
         ),
-        
-        vscode.commands.registerCommand('secureNotes.createFolder', (item) => 
+
+        vscode.commands.registerCommand('secureNotes.createFolder', (item) =>
             commands.createFolder(item)
         ),
-        
-        vscode.commands.registerCommand('secureNotes.delete', (item) => 
+
+        vscode.commands.registerCommand('secureNotes.delete', (item) =>
             commands.delete(item)
         ),
-        
-        vscode.commands.registerCommand('secureNotes.rename', (item) => 
+
+        vscode.commands.registerCommand('secureNotes.rename', (item) =>
             commands.rename(item)
         ),
-        
-        vscode.commands.registerCommand('secureNotes.refresh', () => 
+
+        vscode.commands.registerCommand('secureNotes.refresh', () =>
             treeProvider.refresh()
         ),
-        
-        vscode.commands.registerCommand('secureNotes.setBaseDirectory', () => 
+
+        vscode.commands.registerCommand('secureNotes.setBaseDirectory', () =>
             commands.setBaseDirectory()
         ),
 
-        // Open encrypted file
+        // Encrypted file operations
         vscode.commands.registerCommand('secureNotes.openEncrypted', async (uri: vscode.Uri) => {
             await openEncryptedFile(uri);
         }),
 
-        // Encryption commands
+        // Encryption management
         vscode.commands.registerCommand('secureNotes.unlock', async () => {
             const success = await encryption.unlock();
             if (success) {
@@ -119,21 +158,13 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('secureNotes.decryptDirectory', async () => {
             await decryptDirectory(treeProvider);
+        }),
+
+        // Debug commands (development only)
+        vscode.commands.registerCommand('secureNotes.showLog', () => {
+            outputChannel.show();
         })
     );
-
-    // Show welcome message if no base directory is configured
-    const baseDir = treeProvider.getBaseDirectory();
-    if (!baseDir) {
-        vscode.window.showInformationMessage(
-            'Welcome to SecureNotes! Set your notes directory to get started.',
-            'Set Directory'
-        ).then(selection => {
-            if (selection === 'Set Directory') {
-                vscode.commands.executeCommand('secureNotes.setBaseDirectory');
-            }
-        });
-    }
 }
 
 /**
@@ -157,6 +188,7 @@ async function openEncryptedFile(uri: vscode.Uri): Promise<void> {
     try {
         await tempFileManager.openEncryptedFile(uri.fsPath);
     } catch (error) {
+        logger.error('Failed to open encrypted file', error as Error, 'Extension', { path: uri.fsPath });
         vscode.window.showErrorMessage(`Failed to open encrypted file: ${(error as Error).message}`);
     }
 }
@@ -164,7 +196,10 @@ async function openEncryptedFile(uri: vscode.Uri): Promise<void> {
 /**
  * Create a new encrypted file
  */
-async function createEncryptedFile(item: NoteItem | undefined, treeProvider: NotepadTreeProvider): Promise<void> {
+async function createEncryptedFile(
+    item: NoteItem | undefined,
+    treeProvider: NotepadTreeProvider
+): Promise<void> {
     if (!tempFileManager) {
         vscode.window.showErrorMessage(
             'Encrypted file creation requires Linux with /dev/shm support.'
@@ -186,7 +221,13 @@ async function createEncryptedFile(item: NoteItem | undefined, treeProvider: Not
 
     const fileName = await vscode.window.showInputBox({
         prompt: 'Enter the name for the new encrypted note',
-        placeHolder: 'note.md'
+        placeHolder: 'note.md',
+        validateInput: (value) => {
+            if (!value || value.trim() === '') {
+                return 'File name cannot be empty';
+            }
+            return null;
+        }
     });
 
     if (!fileName) {
@@ -209,10 +250,10 @@ async function createEncryptedFile(item: NoteItem | undefined, treeProvider: Not
             return;
         }
 
-        // Create and open the encrypted file
         await tempFileManager.createEncryptedFile(encryptedPath);
         treeProvider.refresh();
     } catch (error) {
+        logger.error('Failed to create encrypted file', error as Error, 'Extension', { path: encryptedPath });
         vscode.window.showErrorMessage(`Failed to create encrypted file: ${(error as Error).message}`);
     }
 }
@@ -221,7 +262,6 @@ async function createEncryptedFile(item: NoteItem | undefined, treeProvider: Not
  * Generate a new RSA key pair
  */
 async function generateKeyPair(): Promise<void> {
-    // Ask where to save the keys
     const result = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -235,7 +275,6 @@ async function generateKeyPair(): Promise<void> {
 
     const outputDir = result[0].fsPath;
 
-    // Ask for optional passphrase
     const passphrase = await vscode.window.showInputBox({
         prompt: 'Enter a passphrase to protect your private key (optional)',
         password: true,
@@ -243,13 +282,13 @@ async function generateKeyPair(): Promise<void> {
     });
 
     try {
-        vscode.window.withProgress({
+        await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: 'Generating RSA key pair...',
             cancellable: false
         }, async () => {
             const paths = await NotepadEncryption.generateKeyPair(
-                outputDir, 
+                outputDir,
                 passphrase || undefined
             );
 
@@ -263,6 +302,7 @@ async function generateKeyPair(): Promise<void> {
             );
         });
     } catch (error) {
+        logger.error('Failed to generate key pair', error as Error, 'Extension');
         vscode.window.showErrorMessage(`Failed to generate key pair: ${(error as Error).message}`);
     }
 }
@@ -287,7 +327,6 @@ async function encryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
         return;
     }
 
-    // Ensure encryption is unlocked
     if (!encryption.getIsUnlocked()) {
         const unlocked = await encryption.unlock();
         if (!unlocked) {
@@ -301,35 +340,38 @@ async function encryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
             title: 'Encrypting files...',
             cancellable: false
         }, async (progress) => {
-            const files = getAllFiles(baseDir);
+            const files = getAllFiles(baseDir, (filePath, isDir) => {
+                if (isDir) return true;
+                return !filePath.endsWith('.enc');
+            });
+
             let processed = 0;
 
             for (const file of files) {
                 const fileName = path.basename(file);
-                if (fileName.endsWith('.enc')) {
-                    continue; // Skip already encrypted files
-                }
-
-                progress.report({ 
+                
+                progress.report({
                     message: `${fileName}`,
                     increment: (1 / files.length) * 100
                 });
 
                 const encryptedPath = file + '.enc';
                 await encryption.encryptFile(file, encryptedPath);
-                fs.unlinkSync(file); // Delete original
+                fs.unlinkSync(file);
                 processed++;
             }
 
+            logger.info('Directory encrypted', 'Extension', { baseDir, fileCount: processed });
             vscode.window.showInformationMessage(`Encrypted ${processed} files`);
         });
 
         // Enable encryption in settings
         const config = vscode.workspace.getConfiguration('secureNotes');
         await config.update('encryption.enabled', true, vscode.ConfigurationTarget.Global);
-        
+
         treeProvider.refresh();
     } catch (error) {
+        logger.error('Encryption failed', error as Error, 'Extension');
         vscode.window.showErrorMessage(`Encryption failed: ${(error as Error).message}`);
     }
 }
@@ -344,7 +386,6 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
         return;
     }
 
-    // Ask where to export decrypted files
     const result = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
@@ -358,7 +399,6 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
 
     const exportDir = result[0].fsPath;
 
-    // Ensure encryption is unlocked
     if (!encryption.getIsUnlocked()) {
         const unlocked = await encryption.unlock();
         if (!unlocked) {
@@ -372,15 +412,18 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
             title: 'Decrypting files...',
             cancellable: false
         }, async (progress) => {
-            const files = getAllFiles(baseDir).filter(f => f.endsWith('.enc'));
+            const files = getAllFiles(baseDir, (filePath, isDir) => {
+                if (isDir) return true;
+                return filePath.endsWith('.enc');
+            });
+
             let processed = 0;
 
             for (const file of files) {
                 const relativePath = path.relative(baseDir, file);
-                // Remove .enc suffix to get the original path
                 const exportPath = path.join(exportDir, relativePath.replace(/\.enc$/, ''));
 
-                progress.report({ 
+                progress.report({
                     message: `${path.basename(file)}`,
                     increment: (1 / files.length) * 100
                 });
@@ -396,46 +439,48 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
                 processed++;
             }
 
+            logger.info('Directory decrypted', 'Extension', { exportDir, fileCount: processed });
             vscode.window.showInformationMessage(`Decrypted ${processed} files to ${exportDir}`);
         });
     } catch (error) {
+        logger.error('Decryption failed', error as Error, 'Extension');
         vscode.window.showErrorMessage(`Decryption failed: ${(error as Error).message}`);
     }
 }
 
 /**
- * Get all files in a directory recursively
+ * Show welcome message if no base directory is configured
  */
-function getAllFiles(dirPath: string): string[] {
-    const files: string[] = [];
-    
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-        if (entry.name.startsWith('.')) {
-            continue;
-        }
-
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory()) {
-            files.push(...getAllFiles(fullPath));
-        } else {
-            files.push(fullPath);
-        }
+function showWelcomeMessage(treeProvider: NotepadTreeProvider): void {
+    const baseDir = treeProvider.getBaseDirectory();
+    if (!baseDir) {
+        vscode.window.showInformationMessage(
+            'Welcome to SecureNotes! Set your notes directory to get started.',
+            'Set Directory'
+        ).then(selection => {
+            if (selection === 'Set Directory') {
+                vscode.commands.executeCommand('secureNotes.setBaseDirectory');
+            }
+        });
     }
-
-    return files;
 }
 
+/**
+ * Extension deactivation
+ */
 export function deactivate() {
+    logger.info('SecureNotes extension deactivating', 'Extension');
+
     // Clean up temp files
     if (tempFileManager) {
         tempFileManager.dispose();
         tempFileManager = undefined;
     }
 
+    // Lock encryption
     if (encryption) {
         encryption.lock();
     }
 
-    console.log('SecureNotes extension is now deactivated');
+    logger.info('SecureNotes extension deactivated', 'Extension');
 }

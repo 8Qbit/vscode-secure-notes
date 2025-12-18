@@ -1,97 +1,124 @@
+/**
+ * Tree view item for SecureNotes extension
+ * 
+ * Represents a file or folder in the notes tree view.
+ */
+
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { NoteItemProps, TreeItemType } from './types';
 
+/**
+ * Represents a file or folder in the SecureNotes tree view
+ */
 export class NoteItem extends vscode.TreeItem {
-    // Store the actual file path for operations (including .enc for encrypted files)
+    /** The actual file system path (including .enc for encrypted files) */
     public readonly actualPath: string;
+    
+    /** Whether this item is a directory */
+    public readonly isDirectory: boolean;
+    
+    /** Whether this is an encrypted file */
+    public readonly isEncrypted: boolean;
 
-    constructor(
-        public readonly label: string,
-        resourceUri: vscode.Uri,
-        public readonly isDirectory: boolean,
-        public readonly isEncrypted: boolean,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        actualPath?: string
-    ) {
-        super(label, collapsibleState);
+    constructor(props: NoteItemProps) {
+        const collapsibleState = props.isDirectory
+            ? vscode.TreeItemCollapsibleState.Collapsed
+            : vscode.TreeItemCollapsibleState.None;
 
-        // Store the actual path for file operations
-        this.actualPath = actualPath || resourceUri.fsPath;
+        super(props.label, collapsibleState);
 
-        // For encrypted files, use a resourceUri without .enc so VS Code shows correct file type icon
-        // For folders and regular files, use the actual resourceUri
-        this.resourceUri = resourceUri;
+        this.actualPath = props.actualPath;
+        this.isDirectory = props.isDirectory;
+        this.isEncrypted = props.isEncrypted;
 
-        // Tooltip shows the actual path with encryption status
-        this.tooltip = isEncrypted 
-            ? `${this.actualPath} (encrypted)` 
-            : this.actualPath;
+        // Set resource URI for icon determination
+        this.resourceUri = props.displayPath
+            ? vscode.Uri.file(props.displayPath)
+            : vscode.Uri.file(props.actualPath);
 
-        if (isDirectory) {
+        // Set tooltip
+        this.tooltip = props.isEncrypted
+            ? `${props.actualPath} (encrypted)`
+            : props.actualPath;
+
+        // Set context value and command based on type
+        this.setupContextAndCommand(props);
+    }
+
+    /**
+     * Get the type of this tree item
+     */
+    get type(): TreeItemType {
+        if (this.isDirectory) {
+            return 'folder';
+        }
+        return this.isEncrypted ? 'encryptedFile' : 'file';
+    }
+
+    /**
+     * Set up context value and command based on item type
+     */
+    private setupContextAndCommand(props: NoteItemProps): void {
+        if (props.isDirectory) {
             this.contextValue = 'folder';
-            // Don't set iconPath - VS Code will use theme folder icon based on resourceUri
-        } else if (isEncrypted) {
+            // No command for folders - they expand/collapse
+        } else if (props.isEncrypted) {
             this.contextValue = 'encryptedFile';
-            // Don't set iconPath - VS Code will use theme file icon based on resourceUri (without .enc)
-            // Add a small description to indicate encryption
             this.description = '🔒';
             this.command = {
                 command: 'secureNotes.openEncrypted',
                 title: 'Open Encrypted Note',
-                arguments: [vscode.Uri.file(this.actualPath)]
+                arguments: [vscode.Uri.file(props.actualPath)]
             };
         } else {
             this.contextValue = 'file';
-            // Don't set iconPath - VS Code will use theme file icon based on resourceUri
             this.command = {
                 command: 'vscode.open',
                 title: 'Open Note',
-                arguments: [resourceUri]
+                arguments: [this.resourceUri]
             };
         }
     }
 
     /**
-     * Create a NoteItem from a file path
+     * Create a NoteItem from a file system path
      */
     static fromPath(filePath: string, isDirectory: boolean): NoteItem {
         const fileName = path.basename(filePath);
         const isEncrypted = !isDirectory && fileName.endsWith('.enc');
-        
+
         // For encrypted files, show the name without .enc suffix
         let displayName = fileName;
-        let iconUri: vscode.Uri;
+        let displayPath: string | undefined;
 
         if (isEncrypted) {
             displayName = fileName.replace(/\.enc$/, '');
-            // Use a URI without .enc suffix for icon determination
-            // This makes VS Code show the correct file type icon (e.g., .md icon for note.md.enc)
-            iconUri = vscode.Uri.file(path.join(path.dirname(filePath), displayName));
-        } else {
-            iconUri = vscode.Uri.file(filePath);
+            // Use path without .enc for icon determination
+            displayPath = path.join(path.dirname(filePath), displayName);
         }
-        
-        const collapsibleState = isDirectory
-            ? vscode.TreeItemCollapsibleState.Collapsed
-            : vscode.TreeItemCollapsibleState.None;
 
-        return new NoteItem(displayName, iconUri, isDirectory, isEncrypted, collapsibleState, filePath);
+        return new NoteItem({
+            label: displayName,
+            actualPath: filePath,
+            isDirectory,
+            isEncrypted,
+            displayPath
+        });
     }
 
     /**
      * Create a NoteItem for a new encrypted file
      */
     static forEncryptedFile(filePath: string, displayName: string): NoteItem {
-        // Use a URI without .enc suffix for icon determination
         const dir = path.dirname(filePath);
-        const iconUri = vscode.Uri.file(path.join(dir, displayName));
-        return new NoteItem(
-            displayName,
-            iconUri,
-            false,
-            true,
-            vscode.TreeItemCollapsibleState.None,
-            filePath
-        );
+        
+        return new NoteItem({
+            label: displayName,
+            actualPath: filePath,
+            isDirectory: false,
+            isEncrypted: true,
+            displayPath: path.join(dir, displayName)
+        });
     }
 }

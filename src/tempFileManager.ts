@@ -1,65 +1,114 @@
+/**
+ * Temporary File Manager for SecureNotes extension
+ * 
+ * Manages decrypted files in /dev/shm (RAM-based storage) for secure editing.
+ * Files are decrypted to temp storage, edited with native VS Code editor,
+ * and re-encrypted on save.
+ */
+
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { NotepadEncryption } from './encryption';
+import { TempFileState } from './types';
+import { tempFileLogger as logger } from './logger';
+import { 
+    TempDirNotAvailableError, 
+    TempFileCreateFailedError,
+    DecryptionFailedError
+} from './errors';
+import {
+    secureDelete,
+    secureWriteFile,
+    createSecureDirectory,
+    createDebouncedFileHandler,
+    SECURE_FILE_PERMISSIONS
+} from './fileUtils';
+
+/** Base path for secure temp files */
+const TEMP_BASE_PATH = '/dev/shm';
+
+/** Debounce delay for file save events (ms) */
+const SAVE_DEBOUNCE_MS = 100;
 
 /**
  * Manages temporary decrypted files in /dev/shm for secure editing.
- * Files are decrypted to RAM-based storage, edited with native VS Code editor,
- * and re-encrypted on save.
+ * 
+ * Features:
+ * - Decrypts files to RAM-based storage
+ * - Watches for changes and re-encrypts on save
+ * - Securely deletes temp files on close
+ * - Handles file moves and renames
  */
 export class TempFileManager implements vscode.Disposable {
-    private tempDir: string;
-    private fileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
-    private tempToEncrypted: Map<string, string> = new Map(); // temp path -> encrypted path
-    private encryptedToTemp: Map<string, string> = new Map(); // encrypted path -> temp path
-    private saveInProgress: Set<string> = new Set(); // Prevent re-encryption loops
-    private disposables: vscode.Disposable[] = [];
+    private readonly tempDir: string;
+    private readonly sessionId: string;
+    private readonly tempFiles: Map<string, TempFileState> = new Map();
+    private readonly saveInProgress: Set<string> = new Set();
+    private readonly disposables: vscode.Disposable[] = [];
+    private readonly debouncedSave: (tempPath: string) => void;
 
-    constructor(private encryption: NotepadEncryption) {
-        // Create unique session directory in /dev/shm
-        const sessionId = crypto.randomBytes(8).toString('hex');
-        this.tempDir = `/dev/shm/secureNotes-${sessionId}`;
-        
-        // Create the temp directory
-        if (!fs.existsSync(this.tempDir)) {
-            fs.mkdirSync(this.tempDir, { recursive: true, mode: 0o700 });
-        }
+    constructor(private readonly encryption: NotepadEncryption) {
+        // Generate unique session ID
+        this.sessionId = crypto.randomBytes(8).toString('hex');
+        this.tempDir = path.join(TEMP_BASE_PATH, `secureNotes-${this.sessionId}`);
 
-        // Watch for editor close events to clean up temp files
-        this.disposables.push(
-            vscode.workspace.onDidCloseTextDocument(doc => {
-                this.onDocumentClosed(doc);
-            })
+        // Create temp directory with secure permissions
+        createSecureDirectory(this.tempDir, SECURE_FILE_PERMISSIONS.PRIVATE_DIR);
+
+        // Set up debounced save handler
+        this.debouncedSave = createDebouncedFileHandler(
+            (tempPath) => this.handleFileChange(tempPath),
+            SAVE_DEBOUNCE_MS
         );
 
-        // Also watch for tab close events - more reliable than onDidCloseTextDocument
+        // Watch for tab close events
         this.disposables.push(
             vscode.window.tabGroups.onDidChangeTabs(event => {
-                this.onTabsChanged(event);
+                this.handleTabsChanged(event);
             })
         );
 
-        console.log(`TempFileManager: Created temp directory at ${this.tempDir}`);
+        // Watch for document close events (backup)
+        this.disposables.push(
+            vscode.workspace.onDidCloseTextDocument(doc => {
+                this.handleDocumentClosed(doc);
+            })
+        );
+
+        logger.info('TempFileManager initialized', {
+            tempDir: this.tempDir,
+            sessionId: this.sessionId
+        });
     }
 
+    // ========================================================================
+    // Static Methods
+    // ========================================================================
+
     /**
-     * Check if /dev/shm is available (Linux)
+     * Check if /dev/shm is available (Linux only)
      */
     static isAvailable(): boolean {
-        return fs.existsSync('/dev/shm') && process.platform === 'linux';
+        const available = fs.existsSync(TEMP_BASE_PATH) && process.platform === 'linux';
+        logger.debug('Checking temp storage availability', { available, platform: process.platform });
+        return available;
     }
+
+    // ========================================================================
+    // Public API
+    // ========================================================================
 
     /**
      * Open an encrypted file by decrypting it to temp and opening with native editor
      */
     async openEncryptedFile(encryptedPath: string): Promise<void> {
         // Check if already open
-        if (this.encryptedToTemp.has(encryptedPath)) {
-            const tempPath = this.encryptedToTemp.get(encryptedPath)!;
-            const doc = await vscode.workspace.openTextDocument(tempPath);
-            await vscode.window.showTextDocument(doc);
+        const existingState = this.findByEncryptedPath(encryptedPath);
+        if (existingState) {
+            logger.debug('File already open, focusing', { encryptedPath });
+            await this.focusFile(existingState.tempPath);
             return;
         }
 
@@ -75,136 +124,40 @@ export class TempFileManager implements vscode.Disposable {
             // Decrypt the file
             const decryptedContent = this.encryption.decryptFile(encryptedPath);
 
-            // Create temp file path with unique hash to avoid conflicts
-            // Use hash of full path to ensure uniqueness even for same-named files in different dirs
-            const fileName = path.basename(encryptedPath).replace(/\.enc$/, '');
-            const pathHash = crypto.createHash('md5').update(encryptedPath).digest('hex').slice(0, 8);
-            const uniqueFileName = `${pathHash}_${fileName}`;
-            const tempPath = path.join(this.tempDir, uniqueFileName);
+            // Create unique temp file path
+            const tempPath = this.createTempPath(encryptedPath);
 
-            // Write decrypted content to temp file with restrictive permissions
-            fs.writeFileSync(tempPath, decryptedContent, { mode: 0o600 });
+            // Write decrypted content with secure permissions
+            secureWriteFile(tempPath, decryptedContent, SECURE_FILE_PERMISSIONS.PRIVATE);
 
-            // Track the mapping
-            this.tempToEncrypted.set(tempPath, encryptedPath);
-            this.encryptedToTemp.set(encryptedPath, tempPath);
-
-            // Set up file watcher for this temp file
-            this.setupFileWatcher(tempPath, encryptedPath);
+            // Set up tracking and watcher
+            const watcher = this.createFileWatcher(tempPath, encryptedPath);
+            
+            this.tempFiles.set(tempPath, {
+                tempPath,
+                encryptedPath,
+                watcher,
+                lastModified: new Date()
+            });
 
             // Open in native VS Code editor
-            const doc = await vscode.workspace.openTextDocument(tempPath);
-            await vscode.window.showTextDocument(doc);
+            await this.focusFile(tempPath);
 
-            console.log(`TempFileManager: Opened ${encryptedPath} -> ${tempPath}`);
+            logger.info('Opened encrypted file', {
+                encryptedPath,
+                tempPath
+            });
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to open encrypted file: ${(error as Error).message}`);
-        }
-    }
-
-    /**
-     * Set up a file watcher to re-encrypt when temp file is saved
-     */
-    private setupFileWatcher(tempPath: string, encryptedPath: string): void {
-        // Watch for changes to this specific temp file
-        const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(path.dirname(tempPath), path.basename(tempPath))
-        );
-
-        watcher.onDidChange(async (uri) => {
-            if (this.saveInProgress.has(tempPath)) {
-                return; // Skip if we're in the middle of a save
-            }
-
-            this.saveInProgress.add(tempPath);
-            try {
-                await this.reEncryptFile(tempPath, encryptedPath);
-            } finally {
-                this.saveInProgress.delete(tempPath);
-            }
-        });
-
-        this.fileWatchers.set(tempPath, watcher);
-    }
-
-    /**
-     * Re-encrypt a temp file back to its encrypted location
-     */
-    private async reEncryptFile(tempPath: string, encryptedPath: string): Promise<void> {
-        try {
-            // Read the current temp file content
-            const content = fs.readFileSync(tempPath);
-
-            // Encrypt and write back to original location
-            await this.encryption.encryptFile(tempPath, encryptedPath);
-
-            console.log(`TempFileManager: Re-encrypted ${tempPath} -> ${encryptedPath}`);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to save encrypted file: ${(error as Error).message}`);
-        }
-    }
-
-    /**
-     * Handle tab changes - clean up temp files for closed tabs
-     */
-    private onTabsChanged(event: vscode.TabChangeEvent): void {
-        for (const closedTab of event.closed) {
-            // Check if this is a text document tab
-            if (closedTab.input instanceof vscode.TabInputText) {
-                const uri = closedTab.input.uri;
-                if (this.tempToEncrypted.has(uri.fsPath)) {
-                    this.cleanupTempFile(uri.fsPath);
-                }
+            logger.error('Failed to open encrypted file', error as Error, { encryptedPath });
+            
+            if (error instanceof DecryptionFailedError) {
+                error.showError();
+            } else {
+                vscode.window.showErrorMessage(
+                    `Failed to open encrypted file: ${(error as Error).message}`
+                );
             }
         }
-    }
-
-    /**
-     * Handle document close - clean up temp file
-     */
-    private onDocumentClosed(doc: vscode.TextDocument): void {
-        const tempPath = doc.uri.fsPath;
-        
-        if (!this.tempToEncrypted.has(tempPath)) {
-            return; // Not one of our temp files
-        }
-
-        this.cleanupTempFile(tempPath);
-    }
-
-    /**
-     * Clean up a temp file - delete it and remove from tracking
-     */
-    private cleanupTempFile(tempPath: string): void {
-        const encryptedPath = this.tempToEncrypted.get(tempPath);
-        if (!encryptedPath) {
-            return;
-        }
-
-        // Clean up watcher
-        const watcher = this.fileWatchers.get(tempPath);
-        if (watcher) {
-            watcher.dispose();
-            this.fileWatchers.delete(tempPath);
-        }
-
-        // Delete temp file
-        try {
-            if (fs.existsSync(tempPath)) {
-                // Overwrite with zeros before deleting for extra security
-                const stat = fs.statSync(tempPath);
-                fs.writeFileSync(tempPath, Buffer.alloc(stat.size, 0));
-                fs.unlinkSync(tempPath);
-            }
-        } catch (error) {
-            console.error(`Failed to delete temp file ${tempPath}:`, error);
-        }
-
-        // Remove from maps
-        this.tempToEncrypted.delete(tempPath);
-        this.encryptedToTemp.delete(encryptedPath);
-
-        console.log(`TempFileManager: Cleaned up ${tempPath}`);
     }
 
     /**
@@ -225,10 +178,15 @@ export class TempFileManager implements vscode.Disposable {
             const encrypted = this.encryption.encrypt(emptyContent);
             fs.writeFileSync(encryptedPath, JSON.stringify(encrypted, null, 2));
 
+            logger.info('Created new encrypted file', { encryptedPath });
+
             // Now open it
             await this.openEncryptedFile(encryptedPath);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to create encrypted file: ${(error as Error).message}`);
+            logger.error('Failed to create encrypted file', error as Error, { encryptedPath });
+            vscode.window.showErrorMessage(
+                `Failed to create encrypted file: ${(error as Error).message}`
+            );
         }
     }
 
@@ -236,71 +194,230 @@ export class TempFileManager implements vscode.Disposable {
      * Check if a temp file is currently open for an encrypted file
      */
     isOpen(encryptedPath: string): boolean {
-        return this.encryptedToTemp.has(encryptedPath);
+        return this.findByEncryptedPath(encryptedPath) !== undefined;
     }
 
     /**
      * Get the temp path for an encrypted file (if open)
      */
     getTempPath(encryptedPath: string): string | undefined {
-        return this.encryptedToTemp.get(encryptedPath);
+        return this.findByEncryptedPath(encryptedPath)?.tempPath;
     }
 
     /**
-     * Handle when an encrypted file is moved or renamed.
+     * Handle when an encrypted file is moved, renamed, or deleted.
      * Closes the temp file if it was open.
      */
     onFileMovedOrDeleted(oldEncryptedPath: string): void {
-        if (this.encryptedToTemp.has(oldEncryptedPath)) {
-            const tempPath = this.encryptedToTemp.get(oldEncryptedPath)!;
-            
-            // Close any editors showing this temp file
-            vscode.window.tabGroups.all.forEach(group => {
-                group.tabs.forEach(tab => {
-                    if (tab.input instanceof vscode.TabInputText) {
-                        if (tab.input.uri.fsPath === tempPath) {
-                            vscode.window.tabGroups.close(tab);
-                        }
-                    }
-                });
-            });
+        const state = this.findByEncryptedPath(oldEncryptedPath);
+        if (!state) {
+            return;
+        }
 
-            // Clean up the temp file
-            this.cleanupTempFile(tempPath);
-            
-            console.log(`TempFileManager: Cleaned up moved/deleted file ${oldEncryptedPath}`);
+        logger.info('Handling moved/deleted file', { oldEncryptedPath });
+
+        // Close any editors showing this temp file
+        this.closeEditorTabs(state.tempPath);
+
+        // Clean up the temp file
+        this.cleanupTempFile(state.tempPath);
+    }
+
+    // ========================================================================
+    // Private Methods - File Operations
+    // ========================================================================
+
+    /**
+     * Create a unique temp file path for an encrypted file
+     */
+    private createTempPath(encryptedPath: string): string {
+        const fileName = path.basename(encryptedPath).replace(/\.enc$/, '');
+        const pathHash = crypto.createHash('md5')
+            .update(encryptedPath)
+            .digest('hex')
+            .slice(0, 8);
+        
+        return path.join(this.tempDir, `${pathHash}_${fileName}`);
+    }
+
+    /**
+     * Find temp file state by encrypted path
+     */
+    private findByEncryptedPath(encryptedPath: string): TempFileState | undefined {
+        for (const state of this.tempFiles.values()) {
+            if (state.encryptedPath === encryptedPath) {
+                return state;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Focus a temp file in the editor
+     */
+    private async focusFile(tempPath: string): Promise<void> {
+        const doc = await vscode.workspace.openTextDocument(tempPath);
+        await vscode.window.showTextDocument(doc);
+    }
+
+    /**
+     * Create a file watcher for a temp file
+     */
+    private createFileWatcher(tempPath: string, encryptedPath: string): vscode.FileSystemWatcher {
+        const pattern = new vscode.RelativePattern(
+            path.dirname(tempPath),
+            path.basename(tempPath)
+        );
+        
+        const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+
+        watcher.onDidChange(() => {
+            this.debouncedSave(tempPath);
+        });
+
+        return watcher;
+    }
+
+    /**
+     * Handle file change (debounced)
+     */
+    private async handleFileChange(tempPath: string): Promise<void> {
+        if (this.saveInProgress.has(tempPath)) {
+            return;
+        }
+
+        const state = this.tempFiles.get(tempPath);
+        if (!state) {
+            return;
+        }
+
+        this.saveInProgress.add(tempPath);
+        
+        try {
+            await this.reEncryptFile(tempPath, state.encryptedPath);
+            state.lastModified = new Date();
+        } finally {
+            this.saveInProgress.delete(tempPath);
         }
     }
+
+    /**
+     * Re-encrypt a temp file back to its encrypted location
+     */
+    private async reEncryptFile(tempPath: string, encryptedPath: string): Promise<void> {
+        try {
+            await this.encryption.encryptFile(tempPath, encryptedPath);
+            logger.debug('Re-encrypted file', { tempPath, encryptedPath });
+        } catch (error) {
+            logger.error('Failed to re-encrypt file', error as Error, { tempPath, encryptedPath });
+            vscode.window.showErrorMessage(
+                `Failed to save encrypted file: ${(error as Error).message}`
+            );
+        }
+    }
+
+    // ========================================================================
+    // Private Methods - Event Handlers
+    // ========================================================================
+
+    /**
+     * Handle tab changes - clean up temp files for closed tabs
+     */
+    private handleTabsChanged(event: vscode.TabChangeEvent): void {
+        for (const closedTab of event.closed) {
+            if (closedTab.input instanceof vscode.TabInputText) {
+                const uri = closedTab.input.uri;
+                if (this.tempFiles.has(uri.fsPath)) {
+                    logger.debug('Tab closed, cleaning up', { tempPath: uri.fsPath });
+                    this.cleanupTempFile(uri.fsPath);
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle document close - clean up temp file (backup handler)
+     */
+    private handleDocumentClosed(doc: vscode.TextDocument): void {
+        const tempPath = doc.uri.fsPath;
+        
+        if (!this.tempFiles.has(tempPath)) {
+            return;
+        }
+
+        // Delay cleanup slightly to allow tab handler to run first
+        setTimeout(() => {
+            if (this.tempFiles.has(tempPath)) {
+                logger.debug('Document closed, cleaning up', { tempPath });
+                this.cleanupTempFile(tempPath);
+            }
+        }, 100);
+    }
+
+    /**
+     * Close editor tabs showing a specific temp file
+     */
+    private closeEditorTabs(tempPath: string): void {
+        vscode.window.tabGroups.all.forEach(group => {
+            group.tabs.forEach(tab => {
+                if (tab.input instanceof vscode.TabInputText) {
+                    if (tab.input.uri.fsPath === tempPath) {
+                        vscode.window.tabGroups.close(tab);
+                    }
+                }
+            });
+        });
+    }
+
+    // ========================================================================
+    // Private Methods - Cleanup
+    // ========================================================================
+
+    /**
+     * Clean up a temp file - delete it and remove from tracking
+     */
+    private cleanupTempFile(tempPath: string): void {
+        const state = this.tempFiles.get(tempPath);
+        if (!state) {
+            return;
+        }
+
+        // Dispose watcher
+        state.watcher.dispose();
+
+        // Securely delete temp file
+        secureDelete(tempPath);
+
+        // Remove from tracking
+        this.tempFiles.delete(tempPath);
+
+        logger.info('Cleaned up temp file', { 
+            tempPath, 
+            encryptedPath: state.encryptedPath 
+        });
+    }
+
+    // ========================================================================
+    // Disposal
+    // ========================================================================
 
     /**
      * Clean up all temp files and the temp directory
      */
     dispose(): void {
-        console.log('TempFileManager: Disposing...');
+        logger.info('Disposing TempFileManager');
 
-        // Dispose all watchers
-        for (const watcher of this.fileWatchers.values()) {
-            watcher.dispose();
-        }
-        this.fileWatchers.clear();
-
-        // Dispose other disposables
+        // Dispose all disposables
         for (const d of this.disposables) {
             d.dispose();
         }
 
-        // Delete all temp files securely
-        for (const tempPath of this.tempToEncrypted.keys()) {
-            try {
-                if (fs.existsSync(tempPath)) {
-                    const stat = fs.statSync(tempPath);
-                    fs.writeFileSync(tempPath, Buffer.alloc(stat.size, 0));
-                    fs.unlinkSync(tempPath);
-                }
-            } catch (error) {
-                console.error(`Failed to delete temp file ${tempPath}:`, error);
-            }
+        // Clean up all temp files
+        for (const state of this.tempFiles.values()) {
+            state.watcher.dispose();
+            secureDelete(state.tempPath);
         }
+        this.tempFiles.clear();
 
         // Remove temp directory
         try {
@@ -308,13 +425,9 @@ export class TempFileManager implements vscode.Disposable {
                 fs.rmSync(this.tempDir, { recursive: true, force: true });
             }
         } catch (error) {
-            console.error(`Failed to remove temp directory ${this.tempDir}:`, error);
+            logger.error('Failed to remove temp directory', error as Error, { tempDir: this.tempDir });
         }
 
-        this.tempToEncrypted.clear();
-        this.encryptedToTemp.clear();
-
-        console.log('TempFileManager: Disposed');
+        logger.info('TempFileManager disposed');
     }
 }
-
