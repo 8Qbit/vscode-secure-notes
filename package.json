@@ -4,6 +4,11 @@
   "description": "A secure notes extension with encrypted storage and RSA+AES encryption",
   "version": "0.1.0",
   "publisher": "panylund",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panylund/cursor-notepad"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
