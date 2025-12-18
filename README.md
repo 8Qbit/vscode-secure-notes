@@ -107,7 +107,10 @@ npm run compile
 
 1. Open Command Palette (`Ctrl+Shift+P`)
 2. Run `SecureNotes: Set Base Directory`
-3. Select the folder where you want to store your notes
+3. Select a parent folder (e.g., your home directory or a cloud sync folder)
+4. The extension automatically creates a `VscodeSecureNotes` subfolder
+
+> **🔒 Security**: Notes are always stored in a dedicated `VscodeSecureNotes` subfolder. This prevents accidentally encrypting important files if you select a broad directory.
 
 ### 2. Generate Key Pair (Optional)
 
@@ -173,6 +176,10 @@ On Linux, decrypted files are stored in `/dev/shm` which is:
 - **Auto-lock**: Configurable timeout automatically locks notes
 - **Secure deletion**: Temp files are overwritten with zeros before deletion
 - **Memory clearing**: Keys are cleared from memory on lock
+
+### Directory Isolation
+
+Notes are always stored in a dedicated `VscodeSecureNotes` subfolder. Even if you accidentally select `/home` or `/mnt/c` as your base directory, your files are safe—only the `VscodeSecureNotes` folder is ever touched.
 
 ## File Format
 

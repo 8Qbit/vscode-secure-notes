@@ -83,6 +83,20 @@ npm run package      # Production build (minified)
 3. **Dispose Pattern**: Implement `vscode.Disposable` for cleanup
 4. **File Permissions**: Use constants from `fileUtils.ts` (e.g., `SECURE_FILE_PERMISSIONS.PRIVATE`)
 
+## Security: Directory Isolation
+
+**Critical**: The extension uses a dedicated subfolder (`VscodeSecureNotes`) for all notes storage. This is a security feature that prevents users from accidentally encrypting important files.
+
+```typescript
+// From commands.ts
+export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
+
+// When user selects /home/user, actual base directory becomes:
+// /home/user/VscodeSecureNotes
+```
+
+**Never bypass this**. Even if a user selects `/mnt/c` or `/home`, only the `VscodeSecureNotes` subfolder is touched. The "Encrypt All Notes" command only encrypts files within this isolated directory.
+
 ## Known Limitations
 
 | Issue | Root Cause | Potential Solutions |
