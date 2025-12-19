@@ -5,12 +5,37 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { createTestDir, cleanupTestDir } from './setup';
+import * as os from 'os';
 import { NotepadEncryption } from '../encryption';
 import { mockConfigValues } from '../__mocks__/vscode';
 
-// RSA-4096 key generation is slow, increase timeout
-jest.setTimeout(60000);
+// Use a dedicated test directory that won't be cleaned up prematurely
+const TEST_DIR = path.join(os.tmpdir(), `encryption-test-${process.pid}`);
+
+/**
+ * Generate RSA-2048 test keys (faster than RSA-4096 for CI)
+ */
+async function generateTestKeys(dir: string): Promise<{ publicKeyPath: string; privateKeyPath: string }> {
+    return new Promise((resolve, reject) => {
+        const publicKeyPath = path.join(dir, 'test_public.pem');
+        const privateKeyPath = path.join(dir, 'test_private.pem');
+        
+        // RSA-2048 is much faster to generate than RSA-4096
+        crypto.generateKeyPair('rsa', {
+            modulusLength: 2048, // Faster for tests
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+        }, (err, publicKey, privateKey) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            fs.writeFileSync(publicKeyPath, publicKey, { mode: 0o644 });
+            fs.writeFileSync(privateKeyPath, privateKey, { mode: 0o600 });
+            resolve({ publicKeyPath, privateKeyPath });
+        });
+    });
+}
 
 describe('NotepadEncryption', () => {
     let testDir: string;
@@ -18,21 +43,21 @@ describe('NotepadEncryption', () => {
     let privateKeyPath: string;
 
     beforeAll(async () => {
-        // Generate test keys once for all tests
-        testDir = createTestDir('encryption');
+        // Create dedicated test directory
+        testDir = path.join(TEST_DIR, Date.now().toString());
+        fs.mkdirSync(testDir, { recursive: true });
         
-        // Ensure the directory exists
-        if (!fs.existsSync(testDir)) {
-            fs.mkdirSync(testDir, { recursive: true });
-        }
-        
-        const keyPaths = await NotepadEncryption.generateKeyPair(testDir);
+        // Generate test keys (RSA-2048 for speed)
+        const keyPaths = await generateTestKeys(testDir);
         publicKeyPath = keyPaths.publicKeyPath;
         privateKeyPath = keyPaths.privateKeyPath;
-    });
+    }, 30000); // 30s timeout for key generation
 
     afterAll(() => {
-        cleanupTestDir(testDir);
+        // Clean up test directory
+        if (fs.existsSync(TEST_DIR)) {
+            fs.rmSync(TEST_DIR, { recursive: true, force: true });
+        }
     });
 
     // Helper to set up config mock for key paths
@@ -48,8 +73,12 @@ describe('NotepadEncryption', () => {
     });
 
     describe('generateKeyPair', () => {
+        // These tests use RSA-4096 (production) so need longer timeout
+        const keyGenTimeout = 120000; // 2 minutes for slow CI
+
         it('should generate RSA key pair files', async () => {
-            const keyDir = createTestDir('keygen');
+            const keyDir = path.join(TEST_DIR, 'keygen-' + Date.now());
+            fs.mkdirSync(keyDir, { recursive: true });
             
             const paths = await NotepadEncryption.generateKeyPair(keyDir);
             
@@ -62,33 +91,36 @@ describe('NotepadEncryption', () => {
             expect(publicKey).toContain('BEGIN PUBLIC KEY');
             expect(privateKey).toContain('BEGIN PRIVATE KEY');
             
-            cleanupTestDir(keyDir);
-        });
+            fs.rmSync(keyDir, { recursive: true, force: true });
+        }, keyGenTimeout);
 
         it('should generate passphrase-protected keys', async () => {
-            const keyDir = createTestDir('keygen-pass');
+            const keyDir = path.join(TEST_DIR, 'keygen-pass-' + Date.now());
+            fs.mkdirSync(keyDir, { recursive: true });
             
             const paths = await NotepadEncryption.generateKeyPair(keyDir, 'testpassphrase');
             
             const privateKey = fs.readFileSync(paths.privateKeyPath, 'utf8');
             expect(privateKey).toContain('BEGIN ENCRYPTED PRIVATE KEY');
             
-            cleanupTestDir(keyDir);
-        });
+            fs.rmSync(keyDir, { recursive: true, force: true });
+        }, keyGenTimeout);
 
         it('should set secure file permissions on Linux', async () => {
             if (process.platform === 'win32') {
                 return; // Skip on Windows
             }
             
-            const keyDir = createTestDir('keygen-perms');
+            const keyDir = path.join(TEST_DIR, 'keygen-perms-' + Date.now());
+            fs.mkdirSync(keyDir, { recursive: true });
+            
             const paths = await NotepadEncryption.generateKeyPair(keyDir);
             
             const stats = fs.statSync(paths.privateKeyPath);
             expect(stats.mode & 0o777).toBe(0o600);
             
-            cleanupTestDir(keyDir);
-        });
+            fs.rmSync(keyDir, { recursive: true, force: true });
+        }, keyGenTimeout);
     });
 
     describe('isEncryptedFile', () => {
