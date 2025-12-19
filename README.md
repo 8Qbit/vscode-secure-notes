@@ -2,24 +2,38 @@
 
 A secure notes extension for VS Code/Cursor with end-to-end encryption support.
 
-### Why This Exists
+[![Build and Release](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml/badge.svg)](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml)
+
+## Why This Exists
 
 I've always wanted "The Perfect Note Taking App" that lives right inside my editor. Every existing extension came close but none quite scratched the itch. So one evening (fueled by mass quantities of mass-produced Finnish lager) I decided to vibe-code my own. Here we are.
 
-Then, for reasons I can't fully explain, I got obsessed with having all notes encrypted at rest. I explored VS Code's Virtual File System for cross-platform support, but it didn't play nice with... things. Since I mainly work on Linux anyway, the extension now uses `/dev/shm` as a RAM-based temporary filesystem—your decrypted notes never touch the disk.
+What started as a simple note-taking tool evolved into something more security-focused. I got obsessed with having all notes encrypted at rest. After exploring VS Code's Virtual File System (which didn't play nice with... things), I landed on a practical approach: use your operating system's temporary storage with the best security each platform offers.
 
-[![Build and Release](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml/badge.svg)](https://github.com/8Qbit/vscode-secure-notes/actions/workflows/build.yml)
+On Linux, decrypted notes live in `/dev/shm`—a RAM-based filesystem where your secrets never touch the disk. On Windows and macOS, the extension uses system temp directories with restrictive permissions. It's not perfect everywhere, but it works.
 
 ## Features
 
-- 📁 **File Browser**: Tree view for organizing notes in directories
-- 🔐 **Per-File Encryption**: Encrypt individual files with RSA + AES-256-GCM
-- 🔓 **Mixed Content**: Store encrypted and unencrypted files side by side
-- 🔒 **HMAC Integrity**: Cryptographic verification to detect tampering
-- ⏱️ **Auto-Lock**: Configurable session timeout for automatic locking
-- 🖱️ **Drag & Drop**: Move files and folders with drag and drop
-- 🎨 **Theme Integration**: Follows your VS Code theme
-- 🐧 **Secure Temp Storage**: Uses `/dev/shm` (RAM) for decrypted files on Linux
+- 📁 **File Browser** — Tree view for organizing notes in directories
+- 🔐 **Per-File Encryption** — Encrypt individual files with RSA-4096 + AES-256-GCM
+- 🔓 **Mixed Content** — Store encrypted and unencrypted files side by side
+- 🔒 **Integrity Verification** — HMAC-SHA256 to detect tampering
+- ⏱️ **Auto-Lock** — Configurable session timeout clears keys from memory
+- 🖱️ **Drag & Drop** — Move files and folders naturally
+- 🎨 **Theme Integration** — Follows your VS Code/Cursor theme
+- 🐧 **Cross-Platform** — Works on Linux, Windows, and macOS
+- 🛡️ **RAM Storage (Linux)** — Decrypted files never touch disk on Linux
+- 🧪 **Tested** — Unit tests for encryption, file utilities, and storage
+
+## Platform Security
+
+| Platform | Temp Storage | Security Level |
+|----------|--------------|----------------|
+| **Linux** | `/dev/shm` (RAM-based) | 🟢 **High** — data never touches disk |
+| **Windows** | `%TEMP%` | 🟡 **Medium** — on disk, user-protected |
+| **macOS** | System temp | 🟡 **Medium** — on disk, user-protected |
+
+**Recommendation**: For maximum security, use Linux. On Windows/macOS, enable disk encryption (BitLocker, FileVault) for an additional layer of protection.
 
 ## Installation
 
@@ -27,9 +41,8 @@ Then, for reasons I can't fully explain, I got obsessed with having all notes en
 
 1. Go to the [Releases page](https://github.com/8Qbit/vscode-secure-notes/releases)
 2. Download the latest `.vsix` file
-3. Install in Cursor/VS Code:
+3. Install:
 
-   **Via Command Line:**
    ```bash
    # For Cursor
    cursor --install-extension secure-notes-*.vsix
@@ -38,82 +51,29 @@ Then, for reasons I can't fully explain, I got obsessed with having all notes en
    code --install-extension secure-notes-*.vsix
    ```
 
-   **Via UI:**
-   1. Open Cursor/VS Code
-   2. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac)
-   3. Type "Extensions: Install from VSIX..."
-   4. Select the downloaded `.vsix` file
+   Or via the UI: `Ctrl+Shift+P` → "Extensions: Install from VSIX..."
 
 ### Option 2: Build from Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/8Qbit/vscode-secure-notes.git
-cd cursor-notepad
-
-# Install dependencies
+cd vscode-secure-notes
 npm install
-
-# Build and package
 npm run compile
 npm install -g @vscode/vsce
 vsce package --no-dependencies
-
-# Install the extension
 cursor --install-extension secure-notes-*.vsix
 ```
 
 ### Option 3: Development Mode
 
 ```bash
-# Clone and install
 git clone https://github.com/8Qbit/vscode-secure-notes.git
-cd cursor-notepad
+cd vscode-secure-notes
 npm install
 npm run compile
-
 # Press F5 in Cursor/VS Code to launch Extension Development Host
 ```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        SecureNotes Extension                     │
-├─────────────────────────────────────────────────────────────────┤
-│  extension.ts          │  Main entry point, command registration │
-├────────────────────────┼────────────────────────────────────────┤
-│  encryption.ts         │  RSA+AES hybrid encryption, HMAC        │
-│  tempFileManager.ts    │  /dev/shm temp file management          │
-│  notepadTreeProvider.ts│  Tree view data provider                │
-│  commands.ts           │  File/folder operations                 │
-│  notepadDragAndDrop.ts │  Drag and drop handling                 │
-│  noteItem.ts           │  Tree item representation               │
-├────────────────────────┼────────────────────────────────────────┤
-│  types.ts              │  TypeScript interfaces                  │
-│  errors.ts             │  Structured error types                 │
-│  logger.ts             │  Structured logging                     │
-│  fileUtils.ts          │  File operations & utilities            │
-└────────────────────────┴────────────────────────────────────────┘
-```
-
-## Requirements
-
-- **RSA Key Pair**: Required for encryption (can be generated by the extension)
-
-## Platform Support
-
-| Platform | Secure Temp Storage | Security Level |
-|----------|---------------------|----------------|
-| **Linux** | `/dev/shm` (RAM-based) | 🟢 High - data never touches disk |
-| **Windows** | `%TEMP%` with restricted permissions | 🟡 Medium - data on disk, user-protected |
-| **macOS** | System temp with restricted permissions | 🟡 Medium - data on disk, user-protected |
-
-### Security Notes
-
-- **Linux (Recommended)**: Decrypted files are stored in `/dev/shm`, a RAM-based filesystem. Data is never written to persistent storage.
-
-- **Windows/macOS**: Decrypted files are temporarily stored in the user's temp directory with restrictive permissions (`0600`). While protected from other users, the data does touch disk. For maximum security, use Linux or ensure your disk is encrypted (BitLocker, FileVault).
 
 ## Quick Start
 
@@ -123,121 +83,89 @@ npm run compile
 2. Run `SecureNotes: Set Base Directory`
 3. Select your notes folder
 
-### 2. Generate Key Pair (For Encryption)
+### 2. Generate Keys (Optional — for encryption)
 
-If you want to encrypt files and don't have an RSA key pair:
+If you want to encrypt files:
 
-1. Open Command Palette (`Ctrl+Shift+P`)
-2. Run `SecureNotes: Generate Key Pair`
-3. Select a secure location to save the keys (e.g., `~/.ssh`)
-4. Optionally enter a passphrase to protect your private key
+1. Command Palette → `SecureNotes: Generate Key Pair`
+2. Choose a secure location (e.g., `~/.ssh`)
+3. Optionally set a passphrase
 
-### 3. Configure Encryption
+### 3. Configure Key Paths
 
 1. Open Settings (`Ctrl+,`)
-2. Search for "SecureNotes"
-3. Set `secureNotes.encryption.publicKeyPath` to your public key file
-4. Set `secureNotes.encryption.privateKeyPath` to your private key file
+2. Search "SecureNotes"
+3. Set paths to your public and private keys
 
-### 4. Encrypt or Decrypt Individual Files
+### 4. Start Using
 
-- **Encrypt a file**: Right-click any file → `Encrypt File`
-- **Remove encryption**: Right-click an encrypted file (🔒) → `Remove Encryption`
-- **Create encrypted file**: Right-click a folder → `New Encrypted Note`
+- **Create notes**: Click the `+` icons in the sidebar
+- **Encrypt a file**: Right-click → `Encrypt File`
+- **Open encrypted file**: Just double-click it (🔒 icon)
+- **Remove encryption**: Right-click encrypted file → `Remove Encryption`
 
-Encrypted files are shown with a 🔒 icon and can be opened just like regular files.
+## Commands
+
+### Command Palette
+
+| Command | Description |
+|---------|-------------|
+| `SecureNotes: Set Base Directory` | Choose notes folder |
+| `SecureNotes: Generate Key Pair` | Create RSA-4096 key pair |
+| `SecureNotes: Unlock Notes` | Enter passphrase to decrypt |
+| `SecureNotes: Lock Notes` | Clear keys from memory |
+
+### Context Menu (Right-Click)
+
+| Command | Available On | Description |
+|---------|--------------|-------------|
+| `New Note` | Folders | Create regular file |
+| `New Encrypted Note` | Folders | Create encrypted file |
+| `New Folder` | Folders | Create subfolder |
+| `Encrypt File` | Regular files | Encrypt existing file |
+| `Remove Encryption` | 🔒 files | Permanently decrypt |
+| `Rename` | Any item | Rename file/folder |
+| `Delete` | Any item | Delete file/folder |
 
 ## Configuration
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| `secureNotes.baseDirectory` | Directory for notes | (empty) |
-| `secureNotes.encryption.publicKeyPath` | Path to public key | (empty) |
-| `secureNotes.encryption.privateKeyPath` | Path to private key | (empty) |
-| `secureNotes.encryption.sessionTimeoutMinutes` | Auto-lock timeout (0 = disabled) | `30` |
+| `secureNotes.baseDirectory` | Notes folder path | (empty) |
+| `secureNotes.encryption.publicKeyPath` | RSA public key path | (empty) |
+| `secureNotes.encryption.privateKeyPath` | RSA private key path | (empty) |
+| `secureNotes.encryption.sessionTimeoutMinutes` | Auto-lock after N minutes (0 = never) | `30` |
 
-## Commands
+## Security Details
 
-| Command | Description |
-|---------|-------------|
-| `SecureNotes: Set Base Directory` | Configure notes directory |
-| `SecureNotes: Unlock Notes` | Decrypt session (enter passphrase) |
-| `SecureNotes: Lock Notes` | Clear decryption keys from memory |
-| `SecureNotes: Generate Key Pair` | Create new RSA keys |
+### Encryption Stack
 
-### Context Menu Commands
+| Layer | Algorithm | Purpose |
+|-------|-----------|---------|
+| Key Wrapping | RSA-4096 (OAEP) | Encrypts per-file AES key |
+| Content | AES-256-GCM | Encrypts file data with authentication |
+| Integrity | HMAC-SHA256 | Additional tamper detection |
 
-| Command | Available On | Description |
-|---------|--------------|-------------|
-| `New Note` | Folders | Create a regular file |
-| `New Encrypted Note` | Folders | Create a new encrypted file |
-| `New Folder` | Folders | Create a subfolder |
-| `Encrypt File` | Regular files | Encrypt an existing file |
-| `Remove Encryption` | Encrypted files (🔒) | Permanently decrypt a file |
-| `Rename` | All items | Rename file or folder |
-| `Delete` | All items | Delete file or folder |
+### Secure Practices
 
-## Security Features
+- **Path Validation** — All operations validated to prevent directory traversal
+- **Secure Deletion** — Temp files overwritten with zeros before removal
+- **Memory Clearing** — Keys cleared from memory on lock
+- **Permission Hardening** — Files created with `0600` permissions
+- **Key Storage Warnings** — Extension warns about insecure key locations
 
-### Hybrid Encryption
-
-- **RSA-4096**: Used to encrypt a random AES key per file
-- **AES-256-GCM**: Used to encrypt file content with authenticated encryption
-- **HMAC-SHA256**: Additional integrity verification layer
-
-### Secure Temp Files
-
-On Linux, decrypted files are stored in `/dev/shm` which is:
-- **RAM-based**: Never written to disk
-- **Private**: Accessible only by your user (mode 0700)
-- **Auto-cleaned**: Securely deleted when files are closed
-
-### Session Management
-
-- **Auto-lock**: Configurable timeout automatically locks notes
-- **Secure deletion**: Temp files are overwritten with zeros before deletion
-- **Memory clearing**: Keys are cleared from memory on lock
-
-### Path Validation
-
-All file operations are validated to ensure they stay within your notes directory, preventing path traversal attacks.
-
-## File Format
-
-Encrypted files (`.enc`) use JSON format:
+### Encrypted File Format
 
 ```json
 {
   "version": 2,
-  "encryptedKey": "<base64 RSA-encrypted AES key>",
-  "iv": "<base64 initialization vector>",
-  "authTag": "<base64 GCM authentication tag>",
-  "content": "<base64 AES-encrypted content>",
-  "hmac": "<base64 HMAC for integrity>"
+  "encryptedKey": "<RSA-encrypted AES key>",
+  "iv": "<initialization vector>",
+  "authTag": "<GCM authentication tag>",
+  "content": "<AES-encrypted content>",
+  "hmac": "<integrity hash>"
 }
 ```
-
-## CI/CD
-
-This project uses GitHub Actions for continuous integration:
-
-- **Build**: Runs on every push and pull request
-- **Release**: Automatically creates releases when a version tag is pushed
-
-### Creating a Release
-
-```bash
-# Update version in package.json, then:
-git add package.json
-git commit -m "Bump version to X.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
-```
-
-The GitHub Action will automatically:
-1. Build the extension
-2. Package it as a `.vsix` file
-3. Create a GitHub Release with the `.vsix` attached
 
 ## Development
 
@@ -245,60 +173,77 @@ The GitHub Action will automatically:
 
 ```
 src/
-├── extension.ts           # Entry point
-├── encryption.ts          # Encryption logic
-├── tempFileManager.ts     # Temp file management
-├── notepadTreeProvider.ts # Tree view provider
-├── commands.ts            # Command handlers
-├── notepadDragAndDrop.ts  # Drag & drop
-├── noteItem.ts            # Tree item class
-├── types.ts               # Type definitions
-├── errors.ts              # Error classes
-├── logger.ts              # Logging module
-└── fileUtils.ts           # File utilities
+├── extension.ts           # Entry point, command registration
+├── encryption.ts          # RSA+AES hybrid encryption
+├── secureTempStorage.ts   # Platform-aware temp storage
+├── tempFileManager.ts     # Temp file lifecycle
+├── notepadTreeProvider.ts # Tree view data provider
+├── notepadDragAndDrop.ts  # Drag & drop handling
+├── commands.ts            # File/folder operations
+├── noteItem.ts            # Tree item representation
+├── fileUtils.ts           # File utilities, path validation
+├── types.ts               # TypeScript interfaces
+├── errors.ts              # Custom error classes
+├── logger.ts              # Structured logging
+└── __tests__/             # Jest unit tests
 ```
 
 ### Build Commands
 
 ```bash
-npm run compile  # Build once
-npm run watch    # Watch mode
-npm run package  # Production build
-npm run lint     # Run linter
+npm run compile      # Build once
+npm run watch        # Watch mode
+npm run package      # Production build
+npm run lint         # Run ESLint
+npm test             # Run unit tests
+npm run test:coverage # Tests with coverage
 ```
 
-### Debugging
+### Creating a Release
 
-1. Press F5 to launch extension in debug mode
-2. View logs: Command Palette → `SecureNotes: Show Log`
+```bash
+# 1. Update version in package.json
+# 2. Commit and tag
+git add package.json
+git commit -m "Release vX.Y.Z"
+git tag vX.Y.Z
+git push origin main --tags
+```
+
+GitHub Actions will automatically build and create a release with the `.vsix` file.
 
 ## Troubleshooting
 
-### Extension not appearing in Activity Bar
-- Make sure the extension is installed and enabled
-- Reload the window (`Ctrl+Shift+P` → "Developer: Reload Window")
+### Extension not appearing
+- Ensure it's installed and enabled
+- Reload window: `Ctrl+Shift+P` → "Developer: Reload Window"
 
-### "Encrypted file editing requires Linux"
-- The extension uses `/dev/shm` for secure temporary storage
-- This feature is only available on Linux systems
+### "Reduced security" warning on Windows/macOS
+- This is expected — temp files are on disk (with permissions)
+- For full security, use Linux or enable disk encryption
 
 ### Passphrase prompt not appearing
-- Ensure your private key file exists at the configured path
-- Check that the file permissions allow reading
+- Check that private key path is correct in settings
+- Verify file permissions allow reading
+
+### Encrypted file won't open
+- Run `SecureNotes: Unlock Notes` first
+- Check that key paths are configured
 
 ## Limitations
 
-- **Disk-based temp on Windows/macOS**: Decrypted files touch disk (protected by permissions)
-- **Secure delete best-effort**: On modern SSDs/filesystems, secure deletion may not fully overwrite data
+- **Disk temp on Windows/macOS** — Decrypted files touch disk (permissions-protected)
+- **Secure delete best-effort** — SSDs/journaling filesystems may retain data
+- **No cloud sync** — Extension doesn't sync notes (use your own solution)
 
 ## Roadmap
 
-- [ ] **VS Code VFS**: Implement Virtual File System for truly in-memory editing on all platforms
-- [ ] **"Encrypt on create"** toggle setting
-- [ ] **VS Code Marketplace**: Publish to the official extension marketplace
-- [x] ~~**Windows Support**~~: Basic support added (uses temp directory)
-- [x] ~~**macOS Support**~~: Basic support added (uses temp directory)
-- [x] ~~**Unit Tests**~~: Added Jest tests for encryption, fileUtils, and secureTempStorage
+- [ ] VS Code Virtual File System for true in-memory editing
+- [ ] "Encrypt on create" toggle setting
+- [ ] VS Code Marketplace publishing
+- [x] ~~Windows support~~ — v2.0.0
+- [x] ~~macOS support~~ — v2.0.0
+- [x] ~~Unit tests~~ — v2.0.0
 
 ## License
 
