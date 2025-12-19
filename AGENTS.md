@@ -170,8 +170,8 @@ On Linux/macOS, `loadPrivateKey()` **blocks** loading if the private key file ha
 | Issue | Root Cause | Potential Solutions |
 |-------|-----------|---------------------|
 | Windows/macOS temp files on disk | No RAM-based filesystem | VFS provider, or rely on disk encryption |
-| No tests | Project was vibe-coded | Add Jest or Vitest |
-| No CI testing | Only builds, doesn't test | Add test step to workflow |
+| ~No tests~ | **FIXED**: Jest tests added | See `src/__tests__/` |
+| ~No CI testing~ | **FIXED**: Tests run in GitHub Actions | See `.github/workflows/build.yml` |
 
 ## Cross-Platform Support (Implemented)
 

@@ -294,11 +294,11 @@ npm run lint     # Run linter
 ## Roadmap
 
 - [ ] **VS Code VFS**: Implement Virtual File System for truly in-memory editing on all platforms
-- [ ] **Unit Tests**: Add test coverage for encryption and file operations
 - [ ] **"Encrypt on create"** toggle setting
 - [ ] **VS Code Marketplace**: Publish to the official extension marketplace
 - [x] ~~**Windows Support**~~: Basic support added (uses temp directory)
 - [x] ~~**macOS Support**~~: Basic support added (uses temp directory)
+- [x] ~~**Unit Tests**~~: Added Jest tests for encryption, fileUtils, and secureTempStorage
 
 ## License
 
