@@ -9,13 +9,69 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NotepadTreeProvider } from './notepadTreeProvider';
-import { NotepadCommands } from './commands';
+import { NotepadCommands, NOTES_SUBFOLDER } from './commands';
 import { NotepadDragAndDropController } from './notepadDragAndDrop';
 import { NotepadEncryption } from './encryption';
 import { TempFileManager } from './tempFileManager';
 import { NoteItem } from './noteItem';
 import { logger, LogLevel } from './logger';
 import { getAllFiles } from './fileUtils';
+
+/**
+ * Validate a file name for security issues.
+ * Prevents path traversal and other dangerous patterns.
+ */
+function validateFileName(value: string): string | null {
+    if (!value || value.trim() === '') {
+        return 'Name cannot be empty';
+    }
+    if (value.includes('/') || value.includes('\\')) {
+        return 'Name cannot contain path separators';
+    }
+    if (value === '..' || value === '.' || value.includes('..')) {
+        return 'Name cannot contain path traversal patterns (..)';
+    }
+    if (value.includes('\0')) {
+        return 'Name contains invalid characters';
+    }
+    return null;
+}
+
+/**
+ * Paths that are potentially insecure for storing private keys.
+ * These are shared, temporary, or commonly synced locations.
+ */
+const INSECURE_KEY_PATHS = [
+    '/tmp',
+    '/var/tmp',
+    '/dev/shm',
+    '/mnt/c/Users/Public',
+    '/mnt/d/Users/Public',
+];
+
+/**
+ * Check if a path is potentially insecure for storing private keys.
+ */
+function isInsecureKeyLocation(dirPath: string): boolean {
+    const normalized = path.resolve(dirPath).toLowerCase();
+    
+    // Check against known insecure paths
+    for (const insecure of INSECURE_KEY_PATHS) {
+        if (normalized.startsWith(insecure.toLowerCase())) {
+            return true;
+        }
+    }
+    
+    // Check for common cloud sync folders
+    const cloudIndicators = ['dropbox', 'onedrive', 'google drive', 'icloud', 'box sync'];
+    for (const indicator of cloudIndicators) {
+        if (normalized.includes(indicator)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
 
 // Global state
 let encryption: NotepadEncryption;
@@ -222,12 +278,7 @@ async function createEncryptedFile(
     const fileName = await vscode.window.showInputBox({
         prompt: 'Enter the name for the new encrypted note',
         placeHolder: 'note.md',
-        validateInput: (value) => {
-            if (!value || value.trim() === '') {
-                return 'File name cannot be empty';
-            }
-            return null;
-        }
+        validateInput: validateFileName
     });
 
     if (!fileName) {
@@ -266,7 +317,8 @@ async function generateKeyPair(): Promise<void> {
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Select Key Storage Location'
+        openLabel: 'Select Key Storage Location',
+        title: 'Select a SECURE location for your encryption keys'
     });
 
     if (!result || !result[0]) {
@@ -275,11 +327,49 @@ async function generateKeyPair(): Promise<void> {
 
     const outputDir = result[0].fsPath;
 
+    // Security check: warn about insecure locations
+    if (isInsecureKeyLocation(outputDir)) {
+        const proceed = await vscode.window.showWarningMessage(
+            '⚠️ SECURITY WARNING: The selected location may not be secure for storing private keys.\n\n' +
+            'Avoid storing keys in:\n' +
+            '• Temporary folders (/tmp)\n' +
+            '• Cloud-synced folders (Dropbox, OneDrive, etc.)\n' +
+            '• Shared/public locations\n\n' +
+            'Consider using ~/.ssh or another private, local directory.',
+            { modal: true },
+            'Use Anyway',
+            'Choose Different Location'
+        );
+
+        if (proceed !== 'Use Anyway') {
+            // Let user try again
+            return generateKeyPair();
+        }
+    }
+
     const passphrase = await vscode.window.showInputBox({
-        prompt: 'Enter a passphrase to protect your private key (optional)',
+        prompt: 'Enter a passphrase to protect your private key (recommended)',
         password: true,
-        placeHolder: 'Leave empty for no passphrase'
+        placeHolder: 'Leave empty for no passphrase (less secure)'
     });
+
+    // Warn if no passphrase is set
+    if (!passphrase) {
+        const proceed = await vscode.window.showWarningMessage(
+            '⚠️ No passphrase set. Your private key will be stored unencrypted.\n\n' +
+            'Anyone with access to the key file can decrypt your notes.',
+            { modal: true },
+            'Continue Without Passphrase',
+            'Set Passphrase'
+        );
+
+        if (proceed === 'Set Passphrase') {
+            return generateKeyPair();
+        }
+        if (proceed !== 'Continue Without Passphrase') {
+            return;
+        }
+    }
 
     try {
         await vscode.window.withProgress({
@@ -386,11 +476,29 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
         return;
     }
 
+    // Security warning before decryption
+    const confirm = await vscode.window.showWarningMessage(
+        '⚠️ SECURITY WARNING\n\n' +
+        'Exported files will be UNENCRYPTED and stored as plain text.\n\n' +
+        'Make sure the export location is:\n' +
+        '• NOT synced to cloud services\n' +
+        '• NOT accessible by others\n' +
+        '• On an encrypted drive (if possible)',
+        { modal: true },
+        'I Understand, Continue',
+        'Cancel'
+    );
+
+    if (confirm !== 'I Understand, Continue') {
+        return;
+    }
+
     const result = await vscode.window.showOpenDialog({
         canSelectFiles: false,
         canSelectFolders: true,
         canSelectMany: false,
-        openLabel: 'Select Export Location'
+        openLabel: 'Select Export Location',
+        title: 'Select a SECURE location for decrypted files'
     });
 
     if (!result || !result[0]) {
@@ -398,6 +506,21 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
     }
 
     const exportDir = result[0].fsPath;
+
+    // Warn about potentially insecure export locations
+    if (isInsecureKeyLocation(exportDir)) {
+        const proceed = await vscode.window.showWarningMessage(
+            '⚠️ The selected export location may not be secure!\n\n' +
+            'Cloud-synced or shared folders could expose your unencrypted notes.',
+            { modal: true },
+            'Export Anyway',
+            'Choose Different Location'
+        );
+
+        if (proceed !== 'Export Anyway') {
+            return decryptDirectory(treeProvider);
+        }
+    }
 
     if (!encryption.getIsUnlocked()) {
         const unlocked = await encryption.unlock();

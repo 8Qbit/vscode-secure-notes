@@ -97,6 +97,30 @@ export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
 
 **Never bypass this**. Even if a user selects `/mnt/c` or `/home`, only the `VscodeSecureNotes` subfolder is touched. The "Encrypt All Notes" command only encrypts files within this isolated directory.
 
+## Other Security Measures
+
+### Path Traversal Prevention
+All file/folder name inputs are validated with `validateFileName()` which blocks:
+- Path separators (`/`, `\`)
+- Path traversal patterns (`..`, `.`)
+- Null bytes (`\0`)
+
+### Key Storage Warnings
+`generateKeyPair()` warns users about insecure locations:
+- Temporary folders (`/tmp`, `/var/tmp`)
+- Cloud-synced folders (Dropbox, OneDrive, Google Drive, iCloud)
+- Shared/public directories
+
+It also warns if no passphrase is set for the private key.
+
+### Private Key Permission Check
+On Linux/macOS, `loadPrivateKey()` **blocks** loading if the private key file has insecure permissions (anything other than 600). Users must fix permissions with `chmod 600`.
+
+### Export Warnings
+`decryptDirectory()` shows security warnings before exporting unencrypted files:
+- General warning about unencrypted export
+- Specific warning if export location appears insecure
+
 ## Known Limitations
 
 | Issue | Root Cause | Potential Solutions |

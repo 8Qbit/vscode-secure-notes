@@ -197,8 +197,19 @@ export class NotepadEncryption implements vscode.Disposable {
             throw new EncryptionKeyNotFoundError(privateKeyPath, 'private');
         }
 
-        // Verify private key file has secure permissions
-        verifyFilePermissions(privateKeyPath, SECURE_FILE_PERMISSIONS.PRIVATE, false);
+        // Verify private key file has secure permissions (mode 600)
+        const hasSecurePerms = verifyFilePermissions(privateKeyPath, SECURE_FILE_PERMISSIONS.PRIVATE, false);
+        if (!hasSecurePerms) {
+            // On Linux/macOS, insecure permissions are a serious issue
+            if (process.platform !== 'win32') {
+                const stats = fs.statSync(privateKeyPath);
+                const actualMode = stats.mode & 0o777;
+                throw new EncryptionNotConfiguredError(
+                    `Private key has insecure permissions (${actualMode.toString(8)}). ` +
+                    `Run: chmod 600 "${privateKeyPath}"`
+                );
+            }
+        }
 
         const keyContent = fs.readFileSync(privateKeyPath, 'utf8');
 

@@ -23,6 +23,29 @@ import {
 export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
 
 /**
+ * Validate a file or folder name for security issues.
+ * Prevents path traversal and other dangerous patterns.
+ */
+function validateFileName(value: string): string | null {
+    if (!value || value.trim() === '') {
+        return 'Name cannot be empty';
+    }
+    // Block path separators
+    if (value.includes('/') || value.includes('\\')) {
+        return 'Name cannot contain path separators';
+    }
+    // Block path traversal attempts
+    if (value === '..' || value === '.' || value.includes('..')) {
+        return 'Name cannot contain path traversal patterns (..)';
+    }
+    // Block null bytes (security issue in some systems)
+    if (value.includes('\0')) {
+        return 'Name contains invalid characters';
+    }
+    return null;
+}
+
+/**
  * Handles file and folder operations for SecureNotes
  */
 export class NotepadCommands {
@@ -49,15 +72,7 @@ export class NotepadCommands {
         const fileName = await vscode.window.showInputBox({
             prompt: 'Enter the name for the new note',
             placeHolder: 'note.md',
-            validateInput: (value) => {
-                if (!value || value.trim() === '') {
-                    return 'File name cannot be empty';
-                }
-                if (value.includes('/') || value.includes('\\')) {
-                    return 'File name cannot contain path separators';
-                }
-                return null;
-            }
+            validateInput: validateFileName
         });
 
         if (!fileName) {
@@ -99,15 +114,7 @@ export class NotepadCommands {
         const folderName = await vscode.window.showInputBox({
             prompt: 'Enter the name for the new folder',
             placeHolder: 'new-folder',
-            validateInput: (value) => {
-                if (!value || value.trim() === '') {
-                    return 'Folder name cannot be empty';
-                }
-                if (value.includes('/') || value.includes('\\')) {
-                    return 'Folder name cannot contain path separators';
-                }
-                return null;
-            }
+            validateInput: validateFileName
         });
 
         if (!folderName) {
@@ -198,15 +205,7 @@ export class NotepadCommands {
             prompt: 'Enter the new name',
             value: displayOldName,
             valueSelection: [0, extensionStart > 0 ? extensionStart : displayOldName.length],
-            validateInput: (value) => {
-                if (!value || value.trim() === '') {
-                    return 'Name cannot be empty';
-                }
-                if (value.includes('/') || value.includes('\\')) {
-                    return 'Name cannot contain path separators';
-                }
-                return null;
-            }
+            validateInput: validateFileName
         });
 
         if (!newDisplayName || newDisplayName === displayOldName) {
