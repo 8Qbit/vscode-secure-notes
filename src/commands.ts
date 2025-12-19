@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NoteItem } from './noteItem';
-import { CommandDependencies, FileOperationCallback } from './types';
+import { CommandDependencies, FileOperationCallback, NOTES_SUBFOLDER } from './types';
 import { commandLogger as logger } from './logger';
 import { 
     BaseDirectoryNotSetError, 
@@ -20,12 +20,6 @@ import {
     validateNewPathWithinBase,
     PathSecurityError
 } from './fileUtils';
-
-/** 
- * Dedicated subfolder name for notes storage.
- * This prevents accidental encryption of user files outside the notes directory.
- */
-export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
 
 /**
  * Handles file and folder operations for SecureNotes
