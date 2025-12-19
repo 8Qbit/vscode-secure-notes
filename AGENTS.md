@@ -59,7 +59,13 @@ Handles all cryptographic operations:
 
 ### `fileUtils.ts`
 
-Utility functions for:
+**Security-critical utility functions**:
+- `validatePathWithinBase()` - Prevents command injection (uses realpath to handle symlinks)
+- `validateNewPathWithinBase()` - Same, for paths that don't exist yet
+- `validateFileName()` - Prevents path traversal in user input
+- `PathSecurityError` - Thrown when path validation fails
+
+Other utilities:
 - Secure file deletion (zero-overwrite before delete)
 - Secure directory creation (mode 0700)
 - Debounced file handlers
@@ -97,13 +103,51 @@ export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
 
 **Never bypass this**. Even if a user selects `/mnt/c` or `/home`, only the `VscodeSecureNotes` subfolder is touched. The "Encrypt All Notes" command only encrypts files within this isolated directory.
 
-## Other Security Measures
+## Critical Security Measures
+
+### Command Injection Prevention (P0)
+
+**CRITICAL**: All file operations validate that paths are within the notes directory.
+
+```typescript
+// From fileUtils.ts - used by ALL file operations
+validatePathWithinBase(targetPath, baseDir);  // Throws PathSecurityError if outside
+validateNewPathWithinBase(newPath, baseDir);  // For paths that don't exist yet
+```
+
+This prevents attacks where malicious extensions call commands like:
+```typescript
+// BLOCKED - would throw PathSecurityError
+vscode.commands.executeCommand('secureNotes.delete', { actualPath: '/etc/passwd' });
+```
+
+Protected operations:
+- `delete()` - validates item.actualPath
+- `rename()` - validates both old and new paths
+- `createFile()` / `createFolder()` - validates target directory and final path
+- `moveItem()` (drag/drop) - validates source, target, and destination paths
+- `createEncryptedFile()` - validates target directory and final path
+
+### Save/Close Race Condition Prevention (P0)
+
+`TempFileManager` now uses `cleanupTempFileAsync()` which:
+1. Waits for any in-progress save to complete
+2. Forces a final re-encrypt before cleanup
+3. Listens to `onDidSaveTextDocument` for immediate saves (bypasses debounce)
 
 ### Path Traversal Prevention
-All file/folder name inputs are validated with `validateFileName()` which blocks:
+All file/folder name inputs are validated with `validateFileName()` (from `fileUtils.ts`) which blocks:
 - Path separators (`/`, `\`)
 - Path traversal patterns (`..`, `.`)
 - Null bytes (`\0`)
+
+### Encrypted File Permissions (P1)
+All `.enc` files are written with mode `0o600` (owner read/write only):
+```typescript
+fs.writeFileSync(destPath, JSON.stringify(encrypted, null, 2), { 
+    mode: SECURE_FILE_PERMISSIONS.PRIVATE 
+});
+```
 
 ### Key Storage Warnings
 `generateKeyPair()` warns users about insecure locations:

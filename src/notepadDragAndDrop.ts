@@ -10,6 +10,7 @@ import * as path from 'path';
 import { NoteItem } from './noteItem';
 import { FileOperationCallback } from './types';
 import { commandLogger as logger } from './logger';
+import { validatePathWithinBase, validateNewPathWithinBase, PathSecurityError } from './fileUtils';
 
 /** MIME type for tree item drag data */
 const TREE_MIME_TYPE = 'application/vnd.code.tree.secureNotesTree';
@@ -100,8 +101,59 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
      * Move a single item to the target directory
      */
     private async moveItem(sourcePath: string, targetDir: string): Promise<void> {
+        const baseDir = this.getBaseDirectory();
+        if (!baseDir) {
+            vscode.window.showErrorMessage('No base directory configured');
+            return;
+        }
+
+        // SECURITY: Validate source path is within notes directory
+        try {
+            validatePathWithinBase(sourcePath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in drag/drop (source)', error, { 
+                    sourcePath, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot move: source is outside notes directory');
+                return;
+            }
+            throw error;
+        }
+
+        // SECURITY: Validate target directory is within notes directory
+        try {
+            validatePathWithinBase(targetDir, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in drag/drop (target)', error, { 
+                    targetDir, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot move: target is outside notes directory');
+                return;
+            }
+            throw error;
+        }
+
         const fileName = path.basename(sourcePath);
         const newPath = path.join(targetDir, fileName);
+
+        // SECURITY: Validate final path is within notes directory
+        try {
+            validateNewPathWithinBase(newPath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in drag/drop (new path)', error, { 
+                    newPath, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot move: destination is outside notes directory');
+                return;
+            }
+            throw error;
+        }
 
         // Don't move to same location
         if (sourcePath === newPath) {

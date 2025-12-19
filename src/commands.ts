@@ -15,35 +15,18 @@ import {
     FileAlreadyExistsError,
     SecureNotesError 
 } from './errors';
+import {
+    validateFileName,
+    validatePathWithinBase,
+    validateNewPathWithinBase,
+    PathSecurityError
+} from './fileUtils';
 
 /** 
  * Dedicated subfolder name for notes storage.
  * This prevents accidental encryption of user files outside the notes directory.
  */
 export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
-
-/**
- * Validate a file or folder name for security issues.
- * Prevents path traversal and other dangerous patterns.
- */
-function validateFileName(value: string): string | null {
-    if (!value || value.trim() === '') {
-        return 'Name cannot be empty';
-    }
-    // Block path separators
-    if (value.includes('/') || value.includes('\\')) {
-        return 'Name cannot contain path separators';
-    }
-    // Block path traversal attempts
-    if (value === '..' || value === '.' || value.includes('..')) {
-        return 'Name cannot contain path traversal patterns (..)';
-    }
-    // Block null bytes (security issue in some systems)
-    if (value.includes('\0')) {
-        return 'Name contains invalid characters';
-    }
-    return null;
-}
 
 /**
  * Handles file and folder operations for SecureNotes
@@ -63,10 +46,28 @@ export class NotepadCommands {
      * Create a new file in the notes directory
      */
     async createFile(item?: NoteItem): Promise<void> {
+        const baseDir = this.getBaseDirectory();
+        if (!baseDir) {
+            new BaseDirectoryNotSetError().showError();
+            return;
+        }
+
         const targetDir = this.getTargetDirectory(item);
         if (!targetDir) {
             new BaseDirectoryNotSetError().showError();
             return;
+        }
+
+        // SECURITY: Validate target directory is within notes directory
+        try {
+            validatePathWithinBase(targetDir, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in createFile', error, { targetDir, baseDir });
+                vscode.window.showErrorMessage('Cannot create file: path is outside notes directory');
+                return;
+            }
+            throw error;
         }
 
         const fileName = await vscode.window.showInputBox({
@@ -80,6 +81,18 @@ export class NotepadCommands {
         }
 
         const filePath = path.join(targetDir, fileName);
+
+        // SECURITY: Validate final path is within notes directory
+        try {
+            validateNewPathWithinBase(filePath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in createFile (final path)', error, { filePath, baseDir });
+                vscode.window.showErrorMessage('Cannot create file: path is outside notes directory');
+                return;
+            }
+            throw error;
+        }
 
         try {
             if (fs.existsSync(filePath)) {
@@ -105,10 +118,28 @@ export class NotepadCommands {
      * Create a new folder in the notes directory
      */
     async createFolder(item?: NoteItem): Promise<void> {
+        const baseDir = this.getBaseDirectory();
+        if (!baseDir) {
+            new BaseDirectoryNotSetError().showError();
+            return;
+        }
+
         const targetDir = this.getTargetDirectory(item);
         if (!targetDir) {
             new BaseDirectoryNotSetError().showError();
             return;
+        }
+
+        // SECURITY: Validate target directory is within notes directory
+        try {
+            validatePathWithinBase(targetDir, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in createFolder', error, { targetDir, baseDir });
+                vscode.window.showErrorMessage('Cannot create folder: path is outside notes directory');
+                return;
+            }
+            throw error;
         }
 
         const folderName = await vscode.window.showInputBox({
@@ -122,6 +153,18 @@ export class NotepadCommands {
         }
 
         const folderPath = path.join(targetDir, folderName);
+
+        // SECURITY: Validate final path is within notes directory
+        try {
+            validateNewPathWithinBase(folderPath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in createFolder (final path)', error, { folderPath, baseDir });
+                vscode.window.showErrorMessage('Cannot create folder: path is outside notes directory');
+                return;
+            }
+            throw error;
+        }
 
         try {
             if (fs.existsSync(folderPath)) {
@@ -146,6 +189,27 @@ export class NotepadCommands {
         if (!item) {
             vscode.window.showErrorMessage('No item selected');
             return;
+        }
+
+        // SECURITY: Validate path is within notes directory
+        const baseDir = this.getBaseDirectory();
+        if (!baseDir) {
+            new BaseDirectoryNotSetError().showError();
+            return;
+        }
+
+        try {
+            validatePathWithinBase(item.actualPath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in delete', error, { 
+                    path: item.actualPath, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot delete: path is outside notes directory');
+                return;
+            }
+            throw error;
         }
 
         const itemPath = item.actualPath;
@@ -193,6 +257,27 @@ export class NotepadCommands {
             return;
         }
 
+        // SECURITY: Validate path is within notes directory
+        const baseDir = this.getBaseDirectory();
+        if (!baseDir) {
+            new BaseDirectoryNotSetError().showError();
+            return;
+        }
+
+        try {
+            validatePathWithinBase(item.actualPath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in rename', error, { 
+                    path: item.actualPath, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot rename: path is outside notes directory');
+                return;
+            }
+            throw error;
+        }
+
         const oldPath = item.actualPath;
         const oldName = path.basename(oldPath);
         const parentDir = path.dirname(oldPath);
@@ -215,6 +300,21 @@ export class NotepadCommands {
         // For encrypted files, add .enc suffix back to the new name
         const newName = item.isEncrypted ? newDisplayName + '.enc' : newDisplayName;
         const newPath = path.join(parentDir, newName);
+
+        // SECURITY: Validate new path is also within notes directory
+        try {
+            validateNewPathWithinBase(newPath, baseDir);
+        } catch (error) {
+            if (error instanceof PathSecurityError) {
+                logger.error('Security violation in rename (new path)', error, { 
+                    newPath, 
+                    baseDir 
+                });
+                vscode.window.showErrorMessage('Cannot rename: new path is outside notes directory');
+                return;
+            }
+            throw error;
+        }
 
         try {
             if (fs.existsSync(newPath)) {

@@ -481,7 +481,10 @@ export class NotepadEncryption implements vscode.Disposable {
     async encryptFile(sourcePath: string, destPath: string): Promise<void> {
         const content = fs.readFileSync(sourcePath);
         const encrypted = this.encrypt(content);
-        fs.writeFileSync(destPath, JSON.stringify(encrypted, null, 2));
+        // Write with secure permissions (owner read/write only)
+        fs.writeFileSync(destPath, JSON.stringify(encrypted, null, 2), { 
+            mode: SECURE_FILE_PERMISSIONS.PRIVATE 
+        });
         logger.debug('File encrypted', { source: sourcePath, dest: destPath });
     }
 

@@ -16,6 +16,146 @@ import {
 const fileLogger = logger.child('FileUtils');
 
 // ============================================================================
+// Path Security Utilities
+// ============================================================================
+
+/**
+ * Security error thrown when path validation fails
+ */
+export class PathSecurityError extends Error {
+    constructor(message: string, public readonly targetPath: string, public readonly baseDir: string) {
+        super(message);
+        this.name = 'PathSecurityError';
+    }
+}
+
+/**
+ * Validate that a path is within the allowed base directory.
+ * Uses realpath to resolve symlinks and prevent escape attacks.
+ * 
+ * CRITICAL SECURITY FUNCTION - used to prevent command injection attacks
+ * where malicious code could pass arbitrary paths to file operations.
+ * 
+ * @param targetPath The path to validate
+ * @param baseDir The base directory that targetPath must be within
+ * @throws PathSecurityError if path is outside base directory
+ */
+export function validatePathWithinBase(targetPath: string, baseDir: string): void {
+    try {
+        // Resolve both paths to handle symlinks and relative paths
+        const realBase = fs.realpathSync(baseDir);
+        const realTarget = fs.realpathSync(targetPath);
+        
+        // Path must be base dir itself or start with base dir + separator
+        const isWithinBase = realTarget === realBase || 
+                             realTarget.startsWith(realBase + path.sep);
+        
+        if (!isWithinBase) {
+            fileLogger.error('Path security violation detected', new Error('Path outside base'), {
+                targetPath,
+                realTarget,
+                baseDir,
+                realBase
+            });
+            throw new PathSecurityError(
+                `Security violation: path is outside notes directory`,
+                targetPath,
+                baseDir
+            );
+        }
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            throw error;
+        }
+        // If realpath fails (file doesn't exist), check parent directory
+        const parentDir = path.dirname(targetPath);
+        if (parentDir !== targetPath && fs.existsSync(parentDir)) {
+            validatePathWithinBase(parentDir, baseDir);
+        } else {
+            throw new PathSecurityError(
+                `Cannot validate path: ${(error as Error).message}`,
+                targetPath,
+                baseDir
+            );
+        }
+    }
+}
+
+/**
+ * Validate a path that may not exist yet (for new files/folders).
+ * Validates the resolved path without requiring existence.
+ * 
+ * @param targetPath The path to validate (may not exist)
+ * @param baseDir The base directory that targetPath must be within
+ * @throws PathSecurityError if path would be outside base directory
+ */
+export function validateNewPathWithinBase(targetPath: string, baseDir: string): void {
+    try {
+        const realBase = fs.realpathSync(baseDir);
+        const resolvedTarget = path.resolve(targetPath);
+        
+        // For new paths, check resolved path starts with base
+        const isWithinBase = resolvedTarget === realBase || 
+                             resolvedTarget.startsWith(realBase + path.sep);
+        
+        if (!isWithinBase) {
+            throw new PathSecurityError(
+                `Security violation: path would be outside notes directory`,
+                targetPath,
+                baseDir
+            );
+        }
+        
+        // Also validate parent exists and is within base
+        const parentDir = path.dirname(targetPath);
+        if (fs.existsSync(parentDir)) {
+            validatePathWithinBase(parentDir, baseDir);
+        }
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            throw error;
+        }
+        throw new PathSecurityError(
+            `Cannot validate path: ${(error as Error).message}`,
+            targetPath,
+            baseDir
+        );
+    }
+}
+
+// ============================================================================
+// Input Validation Utilities
+// ============================================================================
+
+/**
+ * Validate a file or folder name for security issues.
+ * Prevents path traversal and other dangerous patterns.
+ * 
+ * Used by all file/folder creation and rename operations.
+ * 
+ * @param value The filename to validate
+ * @returns Error message if invalid, null if valid
+ */
+export function validateFileName(value: string): string | null {
+    if (!value || value.trim() === '') {
+        return 'Name cannot be empty';
+    }
+    // Block path separators
+    if (value.includes('/') || value.includes('\\')) {
+        return 'Name cannot contain path separators';
+    }
+    // Block path traversal attempts
+    if (value === '..' || value === '.' || value.includes('..')) {
+        return 'Name cannot contain path traversal patterns (..)';
+    }
+    // Block null bytes (security issue in some systems)
+    if (value.includes('\0')) {
+        return 'Name contains invalid characters';
+    }
+    return null;
+}
+
+// ============================================================================
 // File Permission Utilities
 // ============================================================================
 

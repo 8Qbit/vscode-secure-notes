@@ -15,27 +15,13 @@ import { NotepadEncryption } from './encryption';
 import { TempFileManager } from './tempFileManager';
 import { NoteItem } from './noteItem';
 import { logger, LogLevel } from './logger';
-import { getAllFiles } from './fileUtils';
-
-/**
- * Validate a file name for security issues.
- * Prevents path traversal and other dangerous patterns.
- */
-function validateFileName(value: string): string | null {
-    if (!value || value.trim() === '') {
-        return 'Name cannot be empty';
-    }
-    if (value.includes('/') || value.includes('\\')) {
-        return 'Name cannot contain path separators';
-    }
-    if (value === '..' || value === '.' || value.includes('..')) {
-        return 'Name cannot contain path traversal patterns (..)';
-    }
-    if (value.includes('\0')) {
-        return 'Name contains invalid characters';
-    }
-    return null;
-}
+import { 
+    getAllFiles, 
+    validateFileName, 
+    validatePathWithinBase, 
+    validateNewPathWithinBase,
+    PathSecurityError 
+} from './fileUtils';
 
 /**
  * Paths that are potentially insecure for storing private keys.
@@ -264,15 +250,32 @@ async function createEncryptedFile(
     }
 
     const baseDir = treeProvider.getBaseDirectory();
+    if (!baseDir) {
+        vscode.window.showErrorMessage('Please set a base directory first');
+        return;
+    }
+
     let targetDir: string;
 
     if (item) {
         targetDir = item.isDirectory ? item.actualPath : path.dirname(item.actualPath);
-    } else if (baseDir) {
-        targetDir = baseDir;
     } else {
-        vscode.window.showErrorMessage('Please set a base directory first');
-        return;
+        targetDir = baseDir;
+    }
+
+    // SECURITY: Validate target directory is within notes directory
+    try {
+        validatePathWithinBase(targetDir, baseDir);
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in createEncryptedFile', error as Error, 'Extension', { 
+                targetDir, 
+                baseDir 
+            });
+            vscode.window.showErrorMessage('Cannot create file: path is outside notes directory');
+            return;
+        }
+        throw error;
     }
 
     const fileName = await vscode.window.showInputBox({
@@ -285,6 +288,23 @@ async function createEncryptedFile(
         return;
     }
 
+    const encryptedPath = path.join(targetDir, fileName + '.enc');
+
+    // SECURITY: Validate final path is within notes directory
+    try {
+        validateNewPathWithinBase(encryptedPath, baseDir);
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in createEncryptedFile (final path)', error as Error, 'Extension', { 
+                encryptedPath, 
+                baseDir 
+            });
+            vscode.window.showErrorMessage('Cannot create file: path is outside notes directory');
+            return;
+        }
+        throw error;
+    }
+
     // Ensure encryption is unlocked
     if (!encryption.getIsUnlocked()) {
         const unlocked = await encryption.unlock();
@@ -292,8 +312,6 @@ async function createEncryptedFile(
             return;
         }
     }
-
-    const encryptedPath = path.join(targetDir, fileName + '.enc');
 
     try {
         if (fs.existsSync(encryptedPath)) {

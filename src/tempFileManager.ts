@@ -63,6 +63,17 @@ export class TempFileManager implements vscode.Disposable {
             SAVE_DEBOUNCE_MS
         );
 
+        // Watch for document save events (more reliable than file watcher)
+        this.disposables.push(
+            vscode.workspace.onDidSaveTextDocument(doc => {
+                const tempPath = doc.uri.fsPath;
+                if (this.tempFiles.has(tempPath)) {
+                    // Trigger immediate re-encrypt on save (bypass debounce)
+                    this.handleFileChange(tempPath);
+                }
+            })
+        );
+
         // Watch for tab close events
         this.disposables.push(
             vscode.window.tabGroups.onDidChangeTabs(event => {
@@ -329,7 +340,8 @@ export class TempFileManager implements vscode.Disposable {
                 const uri = closedTab.input.uri;
                 if (this.tempFiles.has(uri.fsPath)) {
                     logger.debug('Tab closed, cleaning up', { tempPath: uri.fsPath });
-                    this.cleanupTempFile(uri.fsPath);
+                    // Use async cleanup to ensure save completes first
+                    this.cleanupTempFileAsync(uri.fsPath);
                 }
             }
         }
@@ -349,7 +361,7 @@ export class TempFileManager implements vscode.Disposable {
         setTimeout(() => {
             if (this.tempFiles.has(tempPath)) {
                 logger.debug('Document closed, cleaning up', { tempPath });
-                this.cleanupTempFile(tempPath);
+                this.cleanupTempFileAsync(tempPath);
             }
         }, 100);
     }
@@ -374,7 +386,42 @@ export class TempFileManager implements vscode.Disposable {
     // ========================================================================
 
     /**
-     * Clean up a temp file - delete it and remove from tracking
+     * Clean up a temp file asynchronously - ensures pending saves complete first.
+     * 
+     * CRITICAL: This prevents data loss by flushing any pending saves before cleanup.
+     */
+    private async cleanupTempFileAsync(tempPath: string): Promise<void> {
+        const state = this.tempFiles.get(tempPath);
+        if (!state) {
+            return;
+        }
+
+        // Wait for any in-progress save to complete
+        if (this.saveInProgress.has(tempPath)) {
+            logger.debug('Waiting for in-progress save before cleanup', { tempPath });
+            // Wait a bit for save to complete
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        // Force final re-encrypt to ensure latest content is saved
+        // This handles the race condition where debounced save hasn't run yet
+        if (fs.existsSync(tempPath)) {
+            try {
+                logger.debug('Final save before cleanup', { tempPath });
+                await this.reEncryptFile(tempPath, state.encryptedPath);
+            } catch (error) {
+                logger.error('Failed final save before cleanup', error as Error, { tempPath });
+                // Continue with cleanup even if save fails - user was warned
+            }
+        }
+
+        // Now perform cleanup
+        this.cleanupTempFile(tempPath);
+    }
+
+    /**
+     * Clean up a temp file synchronously - use cleanupTempFileAsync when possible
+     * to prevent data loss.
      */
     private cleanupTempFile(tempPath: string): void {
         const state = this.tempFiles.get(tempPath);

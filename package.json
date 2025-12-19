@@ -16,7 +16,10 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onView:secureNotesTree",
+    "onCommand:secureNotes.setBaseDirectory",
+    "onCommand:secureNotes.generateKeyPair",
+    "onCommand:secureNotes.unlock"
   ],
   "main": "./dist/extension.js",
   "contributes": {
