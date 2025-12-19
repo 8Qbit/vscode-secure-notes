@@ -121,4 +121,24 @@ export class NoteItem extends vscode.TreeItem {
             displayPath: path.join(dir, displayName)
         });
     }
+
+    /**
+     * Create a NoteItem for the root directory (base notes folder)
+     * This node is expanded by default and shows the folder name
+     */
+    static forRootDirectory(dirPath: string): NoteItem {
+        const folderName = path.basename(dirPath);
+        
+        const item = new NoteItem({
+            label: folderName,
+            actualPath: dirPath,
+            isDirectory: true,
+            isEncrypted: false
+        });
+
+        // Root should be expanded by default
+        item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        
+        return item;
+    }
 }
