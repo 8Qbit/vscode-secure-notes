@@ -12,8 +12,7 @@ import { CommandDependencies, FileOperationCallback } from './types';
 import { commandLogger as logger } from './logger';
 import { 
     BaseDirectoryNotSetError, 
-    FileAlreadyExistsError,
-    SecureNotesError 
+    FileAlreadyExistsError
 } from './errors';
 import {
     validateFileName,

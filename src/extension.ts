@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NotepadTreeProvider } from './notepadTreeProvider';
-import { NotepadCommands, NOTES_SUBFOLDER } from './commands';
+import { NotepadCommands } from './commands';
 import { NotepadDragAndDropController } from './notepadDragAndDrop';
 import { NotepadEncryption } from './encryption';
 import { TempFileManager } from './tempFileManager';
@@ -449,7 +449,7 @@ async function encryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
             cancellable: false
         }, async (progress) => {
             const files = getAllFiles(baseDir, (filePath, isDir) => {
-                if (isDir) return true;
+                if (isDir) { return true; }
                 return !filePath.endsWith('.enc');
             });
 
@@ -554,7 +554,7 @@ async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void
             cancellable: false
         }, async (progress) => {
             const files = getAllFiles(baseDir, (filePath, isDir) => {
-                if (isDir) return true;
+                if (isDir) { return true; }
                 return filePath.endsWith('.enc');
             });
 

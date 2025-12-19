@@ -13,11 +13,7 @@ import * as crypto from 'crypto';
 import { NotepadEncryption } from './encryption';
 import { TempFileState } from './types';
 import { tempFileLogger as logger } from './logger';
-import { 
-    TempDirNotAvailableError, 
-    TempFileCreateFailedError,
-    DecryptionFailedError
-} from './errors';
+import { DecryptionFailedError } from './errors';
 import {
     secureDelete,
     secureWriteFile,
@@ -274,7 +270,7 @@ export class TempFileManager implements vscode.Disposable {
     /**
      * Create a file watcher for a temp file
      */
-    private createFileWatcher(tempPath: string, encryptedPath: string): vscode.FileSystemWatcher {
+    private createFileWatcher(tempPath: string, _encryptedPath: string): vscode.FileSystemWatcher {
         const pattern = new vscode.RelativePattern(
             path.dirname(tempPath),
             path.basename(tempPath)
