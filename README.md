@@ -12,6 +12,14 @@ What started as a simple note-taking tool evolved into something more security-f
 
 On Linux, decrypted notes live in `/dev/shm`—a RAM-based filesystem where your secrets never touch the disk. On Windows and macOS, the extension uses system temp directories with restrictive permissions. It's not perfect everywhere, but it works.
 
+## How I Vibe-Coded?
+In this project I acted as a grand orchestrator and came up with high level feature and technical ideas.
+
+As a main AI coder I used `Claude Opus 4.5` in Cursor and as a technical reviewer I used `GPT-5.2`. I used Claude to create plans before implementation, reviewed those carefully personally and added/fixed some ideas. After each step I asked ChatGPT to review the implementation and focus on performance, security, modularity and simplicity. Then I gave the feedback back to Claude and asked it to fix all issues that had been raised during the review.
+
+This was my first slightly larger fully vibe-coded project and all I have to say it was positive experience. The extension works "on my computer" and does what it is supposed to do.
+
+
 ## Features
 
 - 📁 **File Browser** — Tree view for organizing notes in directories
