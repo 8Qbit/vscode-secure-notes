@@ -82,15 +82,31 @@ export function activate(context: vscode.ExtensionContext) {
     encryption = new NotepadEncryption();
     context.subscriptions.push(encryption);
 
-    // Initialize temp file manager if available
-    if (TempFileManager.isAvailable()) {
-        tempFileManager = new TempFileManager(encryption);
-        logger.info('Using /dev/shm for secure temp files', 'Extension');
-    } else {
-        logger.warn('/dev/shm not available, encrypted editing disabled', 'Extension');
-        vscode.window.showWarningMessage(
-            'SecureNotes: /dev/shm is not available. Encrypted file editing requires Linux with /dev/shm.'
-        );
+    // Initialize temp file manager
+    // Now supports multiple platforms with varying security levels
+    tempFileManager = new TempFileManager(encryption);
+    const storageInfo = TempFileManager.getStorageInfo();
+    
+    logger.info('Secure temp storage initialized', 'Extension', {
+        platform: storageInfo.platform,
+        securityLevel: storageInfo.securityLevel
+    });
+
+    // Show platform-specific security information
+    if (storageInfo.securityLevel === 'high') {
+        logger.info('Using RAM-based storage - maximum security', 'Extension');
+    } else if (storageInfo.securityLevel === 'medium') {
+        // Show one-time warning about reduced security on Windows/macOS
+        const warningKey = 'secureNotes.shownTempStorageWarning';
+        if (!context.globalState.get(warningKey)) {
+            vscode.window.showWarningMessage(
+                `SecureNotes: On ${process.platform}, decrypted files are temporarily stored on disk ` +
+                `(with restricted permissions). For maximum security, use Linux with /dev/shm.`,
+                'Got it'
+            ).then(() => {
+                context.globalState.update(warningKey, true);
+            });
+        }
     }
 
     // Create tree data provider

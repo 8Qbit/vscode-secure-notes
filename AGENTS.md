@@ -4,7 +4,7 @@ Instructions for AI agents working on this codebase.
 
 ## Project Overview
 
-**SecureNotes** is a VS Code/Cursor extension for note-taking with optional per-file encryption. It uses hybrid RSA+AES encryption with HMAC integrity verification. The extension supports mixed content (encrypted and unencrypted files side by side). Editing encrypted files securely is done using Linux's `/dev/shm` RAM-based filesystem.
+**SecureNotes** is a VS Code/Cursor extension for note-taking with optional per-file encryption. It uses hybrid RSA+AES encryption with HMAC integrity verification. The extension supports mixed content (encrypted and unencrypted files side by side). Editing encrypted files uses platform-specific secure temp storage (Linux `/dev/shm`, Windows/macOS temp directories).
 
 ## Tech Stack
 
@@ -19,7 +19,8 @@ Instructions for AI agents working on this codebase.
 src/
 ├── extension.ts           # Entry point, command registration, lifecycle
 ├── encryption.ts          # Hybrid encryption (RSA key wrap + AES-GCM)
-├── tempFileManager.ts     # ⚠️ Linux-only temp file handling (/dev/shm)
+├── tempFileManager.ts     # Cross-platform temp file handling
+├── secureTempStorage.ts   # Platform-aware secure storage abstraction
 ├── notepadTreeProvider.ts # Tree view data provider
 ├── commands.ts            # Command handlers (create, delete, rename, etc.)
 ├── notepadDragAndDrop.ts  # Drag & drop controller
@@ -32,22 +33,28 @@ src/
 
 ## Key Files to Understand
 
-### `tempFileManager.ts` (Critical for Cross-Platform Work)
+### `secureTempStorage.ts` (Platform Abstraction)
 
-This is the **main blocker for Windows/Mac support**. It:
+Provides platform-aware secure temporary storage:
 
-1. Decrypts `.enc` files to `/dev/shm` (RAM-based, Linux-only)
+| Platform | Storage | Security Level |
+|----------|---------|----------------|
+| Linux | `/dev/shm` (RAM-based) | High - never touches disk |
+| Windows | `%TEMP%` | Medium - on disk but user-protected |
+| macOS | System temp | Medium - on disk but user-protected |
+
+```typescript
+export type SecurePlatform = 'linux-shm' | 'windows-temp' | 'macos-temp' | 'fallback';
+```
+
+### `tempFileManager.ts`
+
+Uses `SecureTempStorage` to:
+
+1. Decrypts `.enc` files to platform-appropriate temp storage
 2. Opens the decrypted file in VS Code's native editor
 3. Watches for changes and re-encrypts on save
 4. Securely deletes temp files when closed
-
-```typescript
-const TEMP_BASE_PATH = '/dev/shm';  // ← Linux only!
-
-static isAvailable(): boolean {
-    return fs.existsSync(TEMP_BASE_PATH) && process.platform === 'linux';
-}
-```
 
 ### `encryption.ts`
 
@@ -162,47 +169,27 @@ On Linux/macOS, `loadPrivateKey()` **blocks** loading if the private key file ha
 
 | Issue | Root Cause | Potential Solutions |
 |-------|-----------|---------------------|
-| Linux-only encrypted editing | Uses `/dev/shm` | See "Cross-Platform Support" below |
+| Windows/macOS temp files on disk | No RAM-based filesystem | VFS provider, or rely on disk encryption |
 | No tests | Project was vibe-coded | Add Jest or Vitest |
 | No CI testing | Only builds, doesn't test | Add test step to workflow |
 
-## Cross-Platform Support (TODO)
+## Cross-Platform Support (Implemented)
 
-The main challenge is finding secure temporary storage on each platform:
+The extension now supports all major platforms via `SecureTempStorage`:
 
-### Windows Options
+| Platform | Implementation | Security |
+|----------|---------------|----------|
+| Linux | `/dev/shm` | ✅ RAM-based, never touches disk |
+| Windows | `%TEMP%` + 0600 permissions | ⚠️ On disk, user-protected |
+| macOS | System temp + 0600 permissions | ⚠️ On disk, user-protected |
 
-1. **DPAPI + Temp folder**: Use Windows Data Protection API to encrypt temp files
-2. **In-memory editing**: Use VS Code's untitled documents (no disk write)
-3. **RAM disk**: Third-party RAM disk software (not ideal for UX)
-4. **VFS Provider**: Implement `FileSystemProvider` to handle files virtually
+### Future Improvement: VS Code VFS
 
-### macOS Options
-
-1. **Encrypted APFS temp**: Create encrypted sparse image in `/tmp`
-2. **Keychain + temp folder**: Store encryption key in Keychain
-3. **In-memory editing**: Same as Windows option
-4. **VFS Provider**: Same as Windows option
-
-### Recommended Approach
-
-The cleanest cross-platform solution is probably:
-
-1. **VS Code Virtual File System (VFS)**: Implement `FileSystemProvider`
-   - Files exist only in memory
-   - No temp files touch disk
-   - Works on all platforms
-   - Challenge: Some VS Code features may not work (search, git, etc.)
-
-2. **Platform-specific adapters**: Abstract `TempFileManager` with platform-specific implementations
-   ```typescript
-   interface SecureTempStorage {
-       write(content: Buffer): Promise<string>;  // Returns path/URI
-       read(path: string): Promise<Buffer>;
-       delete(path: string): Promise<void>;
-       isAvailable(): boolean;
-   }
-   ```
+For maximum security on all platforms, implement `FileSystemProvider`:
+- Files exist only in memory
+- No temp files touch disk
+- Works on all platforms
+- Challenge: Some VS Code features may not work (search, git, etc.)
 
 ## File Format
 

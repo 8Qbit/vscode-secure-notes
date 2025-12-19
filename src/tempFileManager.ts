@@ -1,7 +1,11 @@
 /**
  * Temporary File Manager for SecureNotes extension
  * 
- * Manages decrypted files in /dev/shm (RAM-based storage) for secure editing.
+ * Manages decrypted files in secure temp storage for editing.
+ * Platform-specific implementations:
+ * - Linux: /dev/shm (RAM-based, never touches disk)
+ * - Windows: %TEMP% with DPAPI encryption
+ * 
  * Files are decrypted to temp storage, edited with native VS Code editor,
  * and re-encrypted on save.
  */
@@ -9,49 +13,49 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { NotepadEncryption } from './encryption';
 import { TempFileState } from './types';
 import { tempFileLogger as logger } from './logger';
 import { DecryptionFailedError } from './errors';
-import {
-    secureDelete,
-    secureWriteFile,
-    createSecureDirectory,
-    createDebouncedFileHandler,
-    SECURE_FILE_PERMISSIONS
-} from './fileUtils';
-
-/** Base path for secure temp files */
-const TEMP_BASE_PATH = '/dev/shm';
+import { createDebouncedFileHandler } from './fileUtils';
+import { SecureTempStorage, SecureStorageInfo } from './secureTempStorage';
 
 /** Debounce delay for file save events (ms) */
 const SAVE_DEBOUNCE_MS = 100;
 
+/** Singleton instance of secure temp storage */
+let secureTempStorageInstance: SecureTempStorage | null = null;
+
 /**
- * Manages temporary decrypted files in /dev/shm for secure editing.
+ * Get or create the secure temp storage instance
+ */
+function getSecureTempStorage(): SecureTempStorage {
+    if (!secureTempStorageInstance) {
+        secureTempStorageInstance = new SecureTempStorage();
+    }
+    return secureTempStorageInstance;
+}
+
+/**
+ * Manages temporary decrypted files in secure storage for editing.
  * 
  * Features:
- * - Decrypts files to RAM-based storage
+ * - Platform-aware secure temp storage (Linux /dev/shm, Windows DPAPI)
+ * - Decrypts files to temp storage
  * - Watches for changes and re-encrypts on save
  * - Securely deletes temp files on close
  * - Handles file moves and renames
  */
 export class TempFileManager implements vscode.Disposable {
-    private readonly tempDir: string;
-    private readonly sessionId: string;
+    private readonly secureStorage: SecureTempStorage;
     private readonly tempFiles: Map<string, TempFileState> = new Map();
     private readonly saveInProgress: Set<string> = new Set();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly debouncedSave: (tempPath: string) => void;
 
     constructor(private readonly encryption: NotepadEncryption) {
-        // Generate unique session ID
-        this.sessionId = crypto.randomBytes(8).toString('hex');
-        this.tempDir = path.join(TEMP_BASE_PATH, `secureNotes-${this.sessionId}`);
-
-        // Create temp directory with secure permissions
-        createSecureDirectory(this.tempDir, SECURE_FILE_PERMISSIONS.PRIVATE_DIR);
+        // Get the secure temp storage
+        this.secureStorage = getSecureTempStorage();
 
         // Set up debounced save handler
         this.debouncedSave = createDebouncedFileHandler(
@@ -84,9 +88,11 @@ export class TempFileManager implements vscode.Disposable {
             })
         );
 
+        const storageInfo = this.secureStorage.getStorageInfo();
         logger.info('TempFileManager initialized', {
-            tempDir: this.tempDir,
-            sessionId: this.sessionId
+            platform: storageInfo.platform,
+            tempDir: this.secureStorage.getTempDir(),
+            securityLevel: storageInfo.securityLevel
         });
     }
 
@@ -95,12 +101,25 @@ export class TempFileManager implements vscode.Disposable {
     // ========================================================================
 
     /**
-     * Check if /dev/shm is available (Linux only)
+     * Check if secure temp storage is available
      */
     static isAvailable(): boolean {
-        const available = fs.existsSync(TEMP_BASE_PATH) && process.platform === 'linux';
-        logger.debug('Checking temp storage availability', { available, platform: process.platform });
+        const storage = getSecureTempStorage();
+        const available = storage.isSecureStorageAvailable();
+        const info = storage.getStorageInfo();
+        logger.debug('Checking temp storage availability', { 
+            available, 
+            platform: info.platform,
+            securityLevel: info.securityLevel
+        });
         return available;
+    }
+
+    /**
+     * Get information about the secure storage being used
+     */
+    static getStorageInfo(): SecureStorageInfo {
+        return getSecureTempStorage().getStorageInfo();
     }
 
     // ========================================================================
@@ -134,8 +153,8 @@ export class TempFileManager implements vscode.Disposable {
             // Create unique temp file path
             const tempPath = this.createTempPath(encryptedPath);
 
-            // Write decrypted content with secure permissions
-            secureWriteFile(tempPath, decryptedContent, SECURE_FILE_PERMISSIONS.PRIVATE);
+            // Write decrypted content to secure storage
+            this.secureStorage.writeSecureFile(tempPath, decryptedContent);
 
             // Set up tracking and watcher
             const watcher = this.createFileWatcher(tempPath, encryptedPath);
@@ -278,7 +297,7 @@ export class TempFileManager implements vscode.Disposable {
 
             // Clean up without trying to re-encrypt again
             state.watcher.dispose();
-            secureDelete(state.tempPath);
+            this.secureStorage.deleteSecureFile(state.tempPath);
             this.tempFiles.delete(state.tempPath);
 
             logger.info('Successfully saved and closed before move', { encryptedPath });
@@ -301,12 +320,7 @@ export class TempFileManager implements vscode.Disposable {
      */
     private createTempPath(encryptedPath: string): string {
         const fileName = path.basename(encryptedPath).replace(/\.enc$/, '');
-        const pathHash = crypto.createHash('md5')
-            .update(encryptedPath)
-            .digest('hex')
-            .slice(0, 8);
-        
-        return path.join(this.tempDir, `${pathHash}_${fileName}`);
+        return this.secureStorage.createTempPath(encryptedPath, fileName);
     }
 
     /**
@@ -375,7 +389,13 @@ export class TempFileManager implements vscode.Disposable {
      */
     private async reEncryptFile(tempPath: string, encryptedPath: string): Promise<void> {
         try {
-            await this.encryption.encryptFile(tempPath, encryptedPath);
+            // Read through secure storage (handles DPAPI decryption on Windows)
+            const content = this.secureStorage.readSecureFile(tempPath);
+            
+            // Encrypt and write to the encrypted file
+            const encrypted = this.encryption.encrypt(content);
+            fs.writeFileSync(encryptedPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+            
             logger.debug('Re-encrypted file', { tempPath, encryptedPath });
         } catch (error) {
             logger.error('Failed to re-encrypt file', error as Error, { tempPath, encryptedPath });
@@ -463,7 +483,7 @@ export class TempFileManager implements vscode.Disposable {
 
         // Force final re-encrypt to ensure latest content is saved
         // This handles the race condition where debounced save hasn't run yet
-        if (fs.existsSync(tempPath)) {
+        if (this.secureStorage.fileExists(tempPath)) {
             try {
                 logger.debug('Final save before cleanup', { tempPath });
                 await this.reEncryptFile(tempPath, state.encryptedPath);
@@ -491,7 +511,7 @@ export class TempFileManager implements vscode.Disposable {
         state.watcher.dispose();
 
         // Securely delete temp file
-        secureDelete(tempPath);
+        this.secureStorage.deleteSecureFile(tempPath);
 
         // Remove from tracking
         this.tempFiles.delete(tempPath);
@@ -520,18 +540,12 @@ export class TempFileManager implements vscode.Disposable {
         // Clean up all temp files
         for (const state of this.tempFiles.values()) {
             state.watcher.dispose();
-            secureDelete(state.tempPath);
+            this.secureStorage.deleteSecureFile(state.tempPath);
         }
         this.tempFiles.clear();
 
-        // Remove temp directory
-        try {
-            if (fs.existsSync(this.tempDir)) {
-                fs.rmSync(this.tempDir, { recursive: true, force: true });
-            }
-        } catch (error) {
-            logger.error('Failed to remove temp directory', error as Error, { tempDir: this.tempDir });
-        }
+        // Dispose the secure storage (removes temp directory)
+        this.secureStorage.dispose();
 
         logger.info('TempFileManager disposed');
     }
