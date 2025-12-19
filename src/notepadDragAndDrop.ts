@@ -8,12 +8,21 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NoteItem } from './noteItem';
-import { FileOperationCallback } from './types';
 import { commandLogger as logger } from './logger';
 import { validatePathWithinBase, validateNewPathWithinBase, PathSecurityError } from './fileUtils';
 
 /** MIME type for tree item drag data */
 const TREE_MIME_TYPE = 'application/vnd.code.tree.secureNotesTree';
+
+/**
+ * Callbacks for drag and drop operations
+ */
+export interface DragDropCallbacks {
+    /** Save and close an open encrypted file before moving */
+    saveAndCloseBeforeMove?: (encryptedPath: string) => Promise<boolean>;
+    /** Check if an encrypted file has unsaved changes */
+    isOpenWithUnsavedChanges?: (encryptedPath: string) => boolean;
+}
 
 /**
  * Handles drag and drop operations in the SecureNotes tree view
@@ -25,7 +34,7 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
     constructor(
         private readonly getBaseDirectory: () => string | undefined,
         private readonly refresh: () => void,
-        private readonly onFileMoved?: FileOperationCallback
+        private readonly callbacks?: DragDropCallbacks
     ) {}
 
     /**
@@ -183,9 +192,31 @@ export class NotepadDragAndDropController implements vscode.TreeDragAndDropContr
         }
 
         try {
-            // Notify that file is being moved (for temp file cleanup)
-            if (this.onFileMoved) {
-                this.onFileMoved(sourcePath);
+            // For encrypted files, check if open with unsaved changes and save first
+            if (sourcePath.endsWith('.enc') && this.callbacks?.isOpenWithUnsavedChanges) {
+                const hasUnsavedChanges = this.callbacks.isOpenWithUnsavedChanges(sourcePath);
+                
+                if (hasUnsavedChanges) {
+                    // Prompt user to save
+                    const choice = await vscode.window.showWarningMessage(
+                        `"${fileName.replace(/\.enc$/, '')}" has unsaved changes.`,
+                        { modal: true },
+                        'Save and Move',
+                        'Cancel'
+                    );
+                    
+                    if (choice !== 'Save and Move') {
+                        return;
+                    }
+                }
+                
+                // Save and close the temp file before moving
+                if (this.callbacks.saveAndCloseBeforeMove) {
+                    const saved = await this.callbacks.saveAndCloseBeforeMove(sourcePath);
+                    if (!saved) {
+                        return; // Save failed, don't move
+                    }
+                }
             }
 
             fs.renameSync(sourcePath, newPath);

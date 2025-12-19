@@ -83,7 +83,7 @@ export function validatePathWithinBase(targetPath: string, baseDir: string): voi
 
 /**
  * Validate a path that may not exist yet (for new files/folders).
- * Validates the resolved path without requiring existence.
+ * Symlink-safe: uses realpath on parent directory when it exists.
  * 
  * @param targetPath The path to validate (may not exist)
  * @param baseDir The base directory that targetPath must be within
@@ -92,9 +92,21 @@ export function validatePathWithinBase(targetPath: string, baseDir: string): voi
 export function validateNewPathWithinBase(targetPath: string, baseDir: string): void {
     try {
         const realBase = fs.realpathSync(baseDir);
-        const resolvedTarget = path.resolve(targetPath);
+        const parentDir = path.dirname(targetPath);
+        const fileName = path.basename(targetPath);
         
-        // For new paths, check resolved path starts with base
+        let resolvedTarget: string;
+        
+        if (fs.existsSync(parentDir)) {
+            // Parent exists - use realpath for accurate symlink resolution
+            const realParent = fs.realpathSync(parentDir);
+            resolvedTarget = path.join(realParent, fileName);
+        } else {
+            // Parent doesn't exist - fall back to path.resolve
+            resolvedTarget = path.resolve(targetPath);
+        }
+        
+        // Check resolved path starts with base
         const isWithinBase = resolvedTarget === realBase || 
                              resolvedTarget.startsWith(realBase + path.sep);
         
@@ -104,12 +116,6 @@ export function validateNewPathWithinBase(targetPath: string, baseDir: string): 
                 targetPath,
                 baseDir
             );
-        }
-        
-        // Also validate parent exists and is within base
-        const parentDir = path.dirname(targetPath);
-        if (fs.existsSync(parentDir)) {
-            validatePathWithinBase(parentDir, baseDir);
         }
     } catch (error) {
         if (error instanceof PathSecurityError) {

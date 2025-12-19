@@ -101,7 +101,12 @@ export function activate(context: vscode.ExtensionContext) {
     const dragAndDropController = new NotepadDragAndDropController(
         () => treeProvider.getBaseDirectory(),
         () => treeProvider.refresh(),
-        (oldPath: string) => tempFileManager?.onFileMovedOrDeleted(oldPath)
+        {
+            saveAndCloseBeforeMove: (encryptedPath: string) => 
+                tempFileManager?.saveAndCloseBeforeMove(encryptedPath) ?? Promise.resolve(true),
+            isOpenWithUnsavedChanges: (encryptedPath: string) => 
+                tempFileManager?.isOpenWithUnsavedChanges(encryptedPath) ?? false
+        }
     );
 
     // Register tree view
@@ -330,6 +335,30 @@ async function createEncryptedFile(
 }
 
 /**
+ * Check if a file is open with unsaved changes and prompt user to save.
+ * Returns true if safe to proceed, false if user cancelled.
+ */
+async function ensureFileSaved(filePath: string): Promise<boolean> {
+    const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === filePath);
+    
+    if (doc && doc.isDirty) {
+        const choice = await vscode.window.showWarningMessage(
+            `"${path.basename(filePath)}" has unsaved changes.`,
+            { modal: true },
+            'Save and Continue',
+            'Cancel'
+        );
+        
+        if (choice === 'Save and Continue') {
+            await doc.save();
+            return true;
+        }
+        return false;
+    }
+    return true;
+}
+
+/**
  * Encrypt a single file
  */
 async function encryptSingleFile(
@@ -347,7 +376,7 @@ async function encryptSingleFile(
         return;
     }
 
-    // SECURITY: Validate file is within notes directory
+    // SECURITY: Validate source file is within notes directory
     try {
         validatePathWithinBase(item.actualPath, baseDir);
     } catch (error) {
@@ -360,6 +389,11 @@ async function encryptSingleFile(
             return;
         }
         throw error;
+    }
+
+    // Check if file has unsaved changes
+    if (!await ensureFileSaved(item.actualPath)) {
+        return;
     }
 
     const confirm = await vscode.window.showWarningMessage(
@@ -381,6 +415,10 @@ async function encryptSingleFile(
 
     try {
         const encryptedPath = item.actualPath + '.enc';
+        
+        // SECURITY: Validate destination path is within notes directory
+        validateNewPathWithinBase(encryptedPath, baseDir);
+        
         await encryption.encryptFile(item.actualPath, encryptedPath);
         fs.unlinkSync(item.actualPath);
         
@@ -388,6 +426,11 @@ async function encryptSingleFile(
         vscode.window.showInformationMessage(`File encrypted: ${path.basename(item.actualPath)}`);
         treeProvider.refresh();
     } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in encryptSingleFile (dest)', error as Error, 'Extension');
+            vscode.window.showErrorMessage('Cannot encrypt file: destination path is outside notes directory');
+            return;
+        }
         logger.error('Failed to encrypt file', error as Error, 'Extension', { path: item.actualPath });
         vscode.window.showErrorMessage(`Failed to encrypt file: ${(error as Error).message}`);
     }
@@ -411,7 +454,7 @@ async function decryptSingleFile(
         return;
     }
 
-    // SECURITY: Validate file is within notes directory
+    // SECURITY: Validate source file is within notes directory
     try {
         validatePathWithinBase(item.actualPath, baseDir);
     } catch (error) {
@@ -424,6 +467,12 @@ async function decryptSingleFile(
             return;
         }
         throw error;
+    }
+
+    // Check if the temp file (if open) has unsaved changes
+    const tempPath = tempFileManager?.getTempPath(item.actualPath);
+    if (tempPath && !await ensureFileSaved(tempPath)) {
+        return;
     }
 
     const displayName = path.basename(item.actualPath).replace(/\.enc$/, '');
@@ -447,6 +496,9 @@ async function decryptSingleFile(
     try {
         const decryptedPath = item.actualPath.replace(/\.enc$/, '');
         
+        // SECURITY: Validate destination path is within notes directory
+        validateNewPathWithinBase(decryptedPath, baseDir);
+        
         if (fs.existsSync(decryptedPath)) {
             vscode.window.showErrorMessage(`Cannot decrypt: "${displayName}" already exists as an unencrypted file`);
             return;
@@ -463,6 +515,11 @@ async function decryptSingleFile(
         vscode.window.showInformationMessage(`Encryption removed: ${displayName}`);
         treeProvider.refresh();
     } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in decryptSingleFile (dest)', error as Error, 'Extension');
+            vscode.window.showErrorMessage('Cannot decrypt file: destination path is outside notes directory');
+            return;
+        }
         logger.error('Failed to decrypt file', error as Error, 'Extension', { path: item.actualPath });
         vscode.window.showErrorMessage(`Failed to decrypt file: ${(error as Error).message}`);
     }

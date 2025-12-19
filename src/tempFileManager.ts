@@ -180,10 +180,10 @@ export class TempFileManager implements vscode.Disposable {
         }
 
         try {
-            // Create empty encrypted file
+            // Create empty encrypted file with secure permissions
             const emptyContent = Buffer.from('');
             const encrypted = this.encryption.encrypt(emptyContent);
-            fs.writeFileSync(encryptedPath, JSON.stringify(encrypted, null, 2));
+            fs.writeFileSync(encryptedPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
             logger.info('Created new encrypted file', { encryptedPath });
 
@@ -226,8 +226,70 @@ export class TempFileManager implements vscode.Disposable {
         // Close any editors showing this temp file
         this.closeEditorTabs(state.tempPath);
 
-        // Clean up the temp file
-        this.cleanupTempFile(state.tempPath);
+        // Use async cleanup to ensure pending saves complete first
+        this.cleanupTempFileAsync(state.tempPath);
+    }
+
+    /**
+     * Check if an encrypted file is open with unsaved changes.
+     */
+    isOpenWithUnsavedChanges(encryptedPath: string): boolean {
+        const state = this.findByEncryptedPath(encryptedPath);
+        if (!state) {
+            return false;
+        }
+        
+        const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === state.tempPath);
+        return doc?.isDirty ?? false;
+    }
+
+    /**
+     * Save any pending changes and close the temp file for an encrypted file.
+     * Use this BEFORE moving/renaming an encrypted file to prevent data loss.
+     * 
+     * @returns true if save was successful or file wasn't open, false on error
+     */
+    async saveAndCloseBeforeMove(encryptedPath: string): Promise<boolean> {
+        const state = this.findByEncryptedPath(encryptedPath);
+        if (!state) {
+            return true; // Not open, nothing to do
+        }
+
+        logger.info('Saving and closing before move', { encryptedPath, tempPath: state.tempPath });
+
+        try {
+            // Find the document
+            const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === state.tempPath);
+            
+            // If document is dirty, save it first
+            if (doc && doc.isDirty) {
+                await doc.save();
+                // Wait a moment for save to complete
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // Force final re-encrypt to ensure latest content is saved
+            if (fs.existsSync(state.tempPath)) {
+                await this.reEncryptFile(state.tempPath, state.encryptedPath);
+            }
+
+            // Close any editors showing this temp file
+            this.closeEditorTabs(state.tempPath);
+
+            // Clean up without trying to re-encrypt again
+            state.watcher.dispose();
+            secureDelete(state.tempPath);
+            this.tempFiles.delete(state.tempPath);
+
+            logger.info('Successfully saved and closed before move', { encryptedPath });
+            return true;
+        } catch (error) {
+            logger.error('Failed to save before move', error as Error, { encryptedPath });
+            vscode.window.showErrorMessage(
+                `Failed to save changes before moving: ${(error as Error).message}`
+            );
+            return false;
+        }
     }
 
     // ========================================================================
