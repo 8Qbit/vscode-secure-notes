@@ -79,13 +79,6 @@ export class NotepadEncryption implements vscode.Disposable {
     // ========================================================================
 
     /**
-     * Check if encryption is enabled in settings
-     */
-    static isEnabled(): boolean {
-        return getEncryptionConfig().enabled;
-    }
-
-    /**
      * Get configured key paths from settings
      */
     static getKeyPaths(): KeyPairPaths {

@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { NoteItem } from './noteItem';
-import { CommandDependencies, FileOperationCallback, NOTES_SUBFOLDER } from './types';
+import { CommandDependencies, FileOperationCallback } from './types';
 import { commandLogger as logger } from './logger';
 import { 
     BaseDirectoryNotSetError, 
@@ -342,38 +342,23 @@ export class NotepadCommands {
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
-            openLabel: 'Select Parent Folder for Notes',
-            title: 'Select where to store your SecureNotes folder'
+            openLabel: 'Select Notes Folder',
+            title: 'Select your notes folder'
         });
 
         if (result && result[0]) {
-            const parentPath = result[0].fsPath;
-            const notesPath = path.join(parentPath, NOTES_SUBFOLDER);
-            
-            // Create the notes subfolder if it doesn't exist
-            if (!fs.existsSync(notesPath)) {
-                try {
-                    fs.mkdirSync(notesPath, { recursive: true });
-                    logger.info('Created notes directory', { notesPath });
-                } catch (error) {
-                    logger.error('Failed to create notes directory', error as Error, { notesPath });
-                    vscode.window.showErrorMessage(
-                        `Failed to create notes directory: ${(error as Error).message}`
-                    );
-                    return;
-                }
-            }
+            const selectedPath = result[0].fsPath;
             
             await vscode.workspace.getConfiguration('secureNotes').update(
                 'baseDirectory',
-                notesPath,
+                selectedPath,
                 vscode.ConfigurationTarget.Global
             );
             
             this.refresh();
             
-            logger.info('Set base directory', { parentPath, notesPath });
-            vscode.window.showInformationMessage(`SecureNotes directory: ${notesPath}`);
+            logger.info('Set base directory', { selectedPath });
+            vscode.window.showInformationMessage(`Notes directory: ${selectedPath}`);
         }
     }
 

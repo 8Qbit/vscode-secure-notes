@@ -16,7 +16,6 @@ import { TempFileManager } from './tempFileManager';
 import { NoteItem } from './noteItem';
 import { logger, LogLevel } from './logger';
 import { 
-    getAllFiles, 
     validateFileName, 
     validatePathWithinBase, 
     validateNewPathWithinBase,
@@ -141,9 +140,7 @@ function registerCommands(
     context.subscriptions.push(
         // File operations
         vscode.commands.registerCommand('secureNotes.createFile', (item) =>
-            NotepadEncryption.isEnabled()
-                ? createEncryptedFile(item, treeProvider)
-                : commands.createFile(item)
+            commands.createFile(item)
         ),
 
         vscode.commands.registerCommand('secureNotes.createFolder', (item) =>
@@ -194,12 +191,17 @@ function registerCommands(
             await generateKeyPair();
         }),
 
-        vscode.commands.registerCommand('secureNotes.encryptDirectory', async () => {
-            await encryptDirectory(treeProvider);
+        // Per-file encryption commands
+        vscode.commands.registerCommand('secureNotes.encryptFile', async (item: NoteItem) => {
+            await encryptSingleFile(item, treeProvider);
         }),
 
-        vscode.commands.registerCommand('secureNotes.decryptDirectory', async () => {
-            await decryptDirectory(treeProvider);
+        vscode.commands.registerCommand('secureNotes.decryptFile', async (item: NoteItem) => {
+            await decryptSingleFile(item, treeProvider);
+        }),
+
+        vscode.commands.registerCommand('secureNotes.createEncryptedFile', async (item: NoteItem | undefined) => {
+            await createEncryptedFile(item, treeProvider);
         }),
 
         // Debug commands (development only)
@@ -328,6 +330,145 @@ async function createEncryptedFile(
 }
 
 /**
+ * Encrypt a single file
+ */
+async function encryptSingleFile(
+    item: NoteItem,
+    treeProvider: NotepadTreeProvider
+): Promise<void> {
+    if (!item || item.isDirectory || item.isEncrypted) {
+        vscode.window.showErrorMessage('Please select a file to encrypt');
+        return;
+    }
+
+    const baseDir = treeProvider.getBaseDirectory();
+    if (!baseDir) {
+        vscode.window.showErrorMessage('Please set a base directory first');
+        return;
+    }
+
+    // SECURITY: Validate file is within notes directory
+    try {
+        validatePathWithinBase(item.actualPath, baseDir);
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in encryptSingleFile', error as Error, 'Extension', {
+                path: item.actualPath,
+                baseDir
+            });
+            vscode.window.showErrorMessage('Cannot encrypt file: path is outside notes directory');
+            return;
+        }
+        throw error;
+    }
+
+    const confirm = await vscode.window.showWarningMessage(
+        `Encrypt "${path.basename(item.actualPath)}"?\n\nThe original file will be replaced with an encrypted version.`,
+        { modal: true },
+        'Encrypt'
+    );
+
+    if (confirm !== 'Encrypt') {
+        return;
+    }
+
+    if (!encryption.getIsUnlocked()) {
+        const unlocked = await encryption.unlock();
+        if (!unlocked) {
+            return;
+        }
+    }
+
+    try {
+        const encryptedPath = item.actualPath + '.enc';
+        await encryption.encryptFile(item.actualPath, encryptedPath);
+        fs.unlinkSync(item.actualPath);
+        
+        logger.info('File encrypted', 'Extension', { path: item.actualPath });
+        vscode.window.showInformationMessage(`File encrypted: ${path.basename(item.actualPath)}`);
+        treeProvider.refresh();
+    } catch (error) {
+        logger.error('Failed to encrypt file', error as Error, 'Extension', { path: item.actualPath });
+        vscode.window.showErrorMessage(`Failed to encrypt file: ${(error as Error).message}`);
+    }
+}
+
+/**
+ * Permanently decrypt a file (remove encryption)
+ */
+async function decryptSingleFile(
+    item: NoteItem,
+    treeProvider: NotepadTreeProvider
+): Promise<void> {
+    if (!item || item.isDirectory || !item.isEncrypted) {
+        vscode.window.showErrorMessage('Please select an encrypted file to decrypt');
+        return;
+    }
+
+    const baseDir = treeProvider.getBaseDirectory();
+    if (!baseDir) {
+        vscode.window.showErrorMessage('Please set a base directory first');
+        return;
+    }
+
+    // SECURITY: Validate file is within notes directory
+    try {
+        validatePathWithinBase(item.actualPath, baseDir);
+    } catch (error) {
+        if (error instanceof PathSecurityError) {
+            logger.error('Security violation in decryptSingleFile', error as Error, 'Extension', {
+                path: item.actualPath,
+                baseDir
+            });
+            vscode.window.showErrorMessage('Cannot decrypt file: path is outside notes directory');
+            return;
+        }
+        throw error;
+    }
+
+    const displayName = path.basename(item.actualPath).replace(/\.enc$/, '');
+    const confirm = await vscode.window.showWarningMessage(
+        `Remove encryption from "${displayName}"?\n\nThe file will be stored as unencrypted plain text.`,
+        { modal: true },
+        'Remove Encryption'
+    );
+
+    if (confirm !== 'Remove Encryption') {
+        return;
+    }
+
+    if (!encryption.getIsUnlocked()) {
+        const unlocked = await encryption.unlock();
+        if (!unlocked) {
+            return;
+        }
+    }
+
+    try {
+        const decryptedPath = item.actualPath.replace(/\.enc$/, '');
+        
+        if (fs.existsSync(decryptedPath)) {
+            vscode.window.showErrorMessage(`Cannot decrypt: "${displayName}" already exists as an unencrypted file`);
+            return;
+        }
+
+        const decrypted = encryption.decryptFile(item.actualPath);
+        fs.writeFileSync(decryptedPath, decrypted, { mode: 0o600 });
+        fs.unlinkSync(item.actualPath);
+
+        // Clean up any temp file for this encrypted file
+        tempFileManager?.onFileMovedOrDeleted(item.actualPath);
+        
+        logger.info('File decrypted', 'Extension', { path: item.actualPath, decryptedPath });
+        vscode.window.showInformationMessage(`Encryption removed: ${displayName}`);
+        treeProvider.refresh();
+    } catch (error) {
+        logger.error('Failed to decrypt file', error as Error, 'Extension', { path: item.actualPath });
+        vscode.window.showErrorMessage(`Failed to decrypt file: ${(error as Error).message}`);
+    }
+}
+
+/**
  * Generate a new RSA key pair
  */
 async function generateKeyPair(): Promise<void> {
@@ -415,179 +556,6 @@ async function generateKeyPair(): Promise<void> {
     }
 }
 
-/**
- * Encrypt all files in the base directory
- */
-async function encryptDirectory(treeProvider: NotepadTreeProvider): Promise<void> {
-    const baseDir = treeProvider.getBaseDirectory();
-    if (!baseDir) {
-        vscode.window.showErrorMessage('Please set a base directory first');
-        return;
-    }
-
-    const confirm = await vscode.window.showWarningMessage(
-        'This will encrypt all files in your notes directory. Original files will be deleted. Continue?',
-        { modal: true },
-        'Encrypt All'
-    );
-
-    if (confirm !== 'Encrypt All') {
-        return;
-    }
-
-    if (!encryption.getIsUnlocked()) {
-        const unlocked = await encryption.unlock();
-        if (!unlocked) {
-            return;
-        }
-    }
-
-    try {
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: 'Encrypting files...',
-            cancellable: false
-        }, async (progress) => {
-            const files = getAllFiles(baseDir, (filePath, isDir) => {
-                if (isDir) { return true; }
-                return !filePath.endsWith('.enc');
-            });
-
-            let processed = 0;
-
-            for (const file of files) {
-                const fileName = path.basename(file);
-                
-                progress.report({
-                    message: `${fileName}`,
-                    increment: (1 / files.length) * 100
-                });
-
-                const encryptedPath = file + '.enc';
-                await encryption.encryptFile(file, encryptedPath);
-                fs.unlinkSync(file);
-                processed++;
-            }
-
-            logger.info('Directory encrypted', 'Extension', { baseDir, fileCount: processed });
-            vscode.window.showInformationMessage(`Encrypted ${processed} files`);
-        });
-
-        // Enable encryption in settings
-        const config = vscode.workspace.getConfiguration('secureNotes');
-        await config.update('encryption.enabled', true, vscode.ConfigurationTarget.Global);
-
-        treeProvider.refresh();
-    } catch (error) {
-        logger.error('Encryption failed', error as Error, 'Extension');
-        vscode.window.showErrorMessage(`Encryption failed: ${(error as Error).message}`);
-    }
-}
-
-/**
- * Decrypt all files to a specified directory
- */
-async function decryptDirectory(treeProvider: NotepadTreeProvider): Promise<void> {
-    const baseDir = treeProvider.getBaseDirectory();
-    if (!baseDir) {
-        vscode.window.showErrorMessage('Please set a base directory first');
-        return;
-    }
-
-    // Security warning before decryption
-    const confirm = await vscode.window.showWarningMessage(
-        '⚠️ SECURITY WARNING\n\n' +
-        'Exported files will be UNENCRYPTED and stored as plain text.\n\n' +
-        'Make sure the export location is:\n' +
-        '• NOT synced to cloud services\n' +
-        '• NOT accessible by others\n' +
-        '• On an encrypted drive (if possible)',
-        { modal: true },
-        'I Understand, Continue',
-        'Cancel'
-    );
-
-    if (confirm !== 'I Understand, Continue') {
-        return;
-    }
-
-    const result = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        openLabel: 'Select Export Location',
-        title: 'Select a SECURE location for decrypted files'
-    });
-
-    if (!result || !result[0]) {
-        return;
-    }
-
-    const exportDir = result[0].fsPath;
-
-    // Warn about potentially insecure export locations
-    if (isInsecureKeyLocation(exportDir)) {
-        const proceed = await vscode.window.showWarningMessage(
-            '⚠️ The selected export location may not be secure!\n\n' +
-            'Cloud-synced or shared folders could expose your unencrypted notes.',
-            { modal: true },
-            'Export Anyway',
-            'Choose Different Location'
-        );
-
-        if (proceed !== 'Export Anyway') {
-            return decryptDirectory(treeProvider);
-        }
-    }
-
-    if (!encryption.getIsUnlocked()) {
-        const unlocked = await encryption.unlock();
-        if (!unlocked) {
-            return;
-        }
-    }
-
-    try {
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: 'Decrypting files...',
-            cancellable: false
-        }, async (progress) => {
-            const files = getAllFiles(baseDir, (filePath, isDir) => {
-                if (isDir) { return true; }
-                return filePath.endsWith('.enc');
-            });
-
-            let processed = 0;
-
-            for (const file of files) {
-                const relativePath = path.relative(baseDir, file);
-                const exportPath = path.join(exportDir, relativePath.replace(/\.enc$/, ''));
-
-                progress.report({
-                    message: `${path.basename(file)}`,
-                    increment: (1 / files.length) * 100
-                });
-
-                // Ensure directory exists
-                const dir = path.dirname(exportPath);
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                const decrypted = encryption.decryptFile(file);
-                fs.writeFileSync(exportPath, decrypted);
-                processed++;
-            }
-
-            logger.info('Directory decrypted', 'Extension', { exportDir, fileCount: processed });
-            vscode.window.showInformationMessage(`Decrypted ${processed} files to ${exportDir}`);
-        });
-    } catch (error) {
-        logger.error('Decryption failed', error as Error, 'Extension');
-        vscode.window.showErrorMessage(`Decryption failed: ${(error as Error).message}`);
-    }
-}
 
 /**
  * Show welcome message if no base directory is configured

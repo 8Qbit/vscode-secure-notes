@@ -9,7 +9,6 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NoteItem } from './noteItem';
-import { NotepadEncryption } from './encryption';
 import { getBaseDirectory as getBaseDir } from './types';
 import { treeLogger as logger } from './logger';
 import { debounce } from './fileUtils';
@@ -93,13 +92,11 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem>, v
      * Get files and folders in a directory
      */
     private getFilesInDirectory(dirPath: string): NoteItem[] {
-        const encryptionEnabled = NotepadEncryption.isEnabled();
-
         try {
             const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
             const items: NoteItem[] = entries
-                .filter(entry => this.shouldShowEntry(entry, encryptionEnabled))
+                .filter(entry => this.shouldShowEntry(entry))
                 .map(entry => {
                     const fullPath = path.join(dirPath, entry.name);
                     return NoteItem.fromPath(fullPath, entry.isDirectory());
@@ -108,8 +105,7 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem>, v
 
             logger.debug('Read directory', { 
                 dirPath, 
-                itemCount: items.length,
-                encryptionEnabled 
+                itemCount: items.length 
             });
 
             return items;
@@ -122,17 +118,11 @@ export class NotepadTreeProvider implements vscode.TreeDataProvider<NoteItem>, v
     /**
      * Determine if an entry should be shown in the tree
      */
-    private shouldShowEntry(entry: fs.Dirent, encryptionEnabled: boolean): boolean {
+    private shouldShowEntry(entry: fs.Dirent): boolean {
         // Hide hidden files
         if (entry.name.startsWith('.')) {
             return false;
         }
-
-        // If encryption is enabled, only show directories and .enc files
-        if (encryptionEnabled && !entry.isDirectory()) {
-            return entry.name.endsWith('.enc');
-        }
-
         return true;
     }
 

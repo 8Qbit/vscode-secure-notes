@@ -4,7 +4,7 @@ Instructions for AI agents working on this codebase.
 
 ## Project Overview
 
-**SecureNotes** is a VS Code/Cursor extension for encrypted note-taking. It uses hybrid RSA+AES encryption with HMAC integrity verification. The core challenge is editing encrypted files securely—currently solved using Linux's `/dev/shm` RAM-based filesystem.
+**SecureNotes** is a VS Code/Cursor extension for note-taking with optional per-file encryption. It uses hybrid RSA+AES encryption with HMAC integrity verification. The extension supports mixed content (encrypted and unencrypted files side by side). Editing encrypted files securely is done using Linux's `/dev/shm` RAM-based filesystem.
 
 ## Tech Stack
 
@@ -89,19 +89,17 @@ npm run package      # Production build (minified)
 3. **Dispose Pattern**: Implement `vscode.Disposable` for cleanup
 4. **File Permissions**: Use constants from `fileUtils.ts` (e.g., `SECURE_FILE_PERMISSIONS.PRIVATE`)
 
-## Security: Directory Isolation
+## Per-File Encryption Model
 
-**Critical**: The extension uses a dedicated subfolder (`VscodeSecureNotes`) for all notes storage. This is a security feature that prevents users from accidentally encrypting important files.
+The extension uses per-file encryption rather than directory-wide encryption:
 
-```typescript
-// From commands.ts
-export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
+- **Mixed content**: Users can have encrypted (`.enc`) and unencrypted files in the same folder
+- **Encrypt File**: Right-click a regular file to encrypt it (replaces original)
+- **Remove Encryption**: Right-click an encrypted file to permanently decrypt it
+- **Create Encrypted File**: Create a new file that's encrypted from the start
+- **Visual indicator**: Encrypted files show a 🔒 icon in the tree view
 
-// When user selects /home/user, actual base directory becomes:
-// /home/user/VscodeSecureNotes
-```
-
-**Never bypass this**. Even if a user selects `/mnt/c` or `/home`, only the `VscodeSecureNotes` subfolder is touched. The "Encrypt All Notes" command only encrypts files within this isolated directory.
+This approach is more flexible and less risky than bulk encryption operations.
 
 ## Critical Security Measures
 
@@ -159,11 +157,6 @@ It also warns if no passphrase is set for the private key.
 
 ### Private Key Permission Check
 On Linux/macOS, `loadPrivateKey()` **blocks** loading if the private key file has insecure permissions (anything other than 600). Users must fix permissions with `chmod 600`.
-
-### Export Warnings
-`decryptDirectory()` shows security warnings before exporting unencrypted files:
-- General warning about unencrypted export
-- Specific warning if export location appears insecure
 
 ## Known Limitations
 

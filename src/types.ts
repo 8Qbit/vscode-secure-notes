@@ -3,15 +3,6 @@
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
-
-/** 
- * Dedicated subfolder name for notes storage.
- * This prevents accidental encryption of user files outside the notes directory.
- * SECURITY: This is enforced both when setting and when reading the base directory.
- */
-export const NOTES_SUBFOLDER = 'VscodeSecureNotes';
 
 // ============================================================================
 // Encryption Types
@@ -47,7 +38,6 @@ export interface KeyPairPaths {
  * Encryption configuration from VS Code settings
  */
 export interface EncryptionConfig {
-    enabled: boolean;
     publicKeyPath: string;
     privateKeyPath: string;
     sessionTimeoutMinutes: number;
@@ -163,7 +153,6 @@ export interface SecureNotesConfig {
 export function getEncryptionConfig(): EncryptionConfig {
     const config = vscode.workspace.getConfiguration('secureNotes');
     return {
-        enabled: config.get<boolean>('encryption.enabled', false),
         publicKeyPath: config.get<string>('encryption.publicKeyPath', ''),
         privateKeyPath: config.get<string>('encryption.privateKeyPath', ''),
         sessionTimeoutMinutes: config.get<number>('encryption.sessionTimeoutMinutes', 30)
@@ -172,48 +161,10 @@ export function getEncryptionConfig(): EncryptionConfig {
 
 /**
  * Get the base directory from VS Code settings.
- * 
- * SECURITY: Always enforces the VscodeSecureNotes subfolder. If the configured
- * path doesn't end with the subfolder, it's automatically appended. This
- * prevents users from bypassing the protection by manually editing settings.
  */
 export function getBaseDirectory(): string | undefined {
     const config = vscode.workspace.getConfiguration('secureNotes');
     const baseDir = config.get<string>('baseDirectory');
-    
-    if (!baseDir || baseDir.trim() === '') {
-        return undefined;
-    }
-    
-    // SECURITY: Always enforce the VscodeSecureNotes subfolder
-    // This prevents users from bypassing protection by editing settings directly
-    const trimmedPath = baseDir.trim();
-    
-    // Check if path already ends with the subfolder
-    if (path.basename(trimmedPath) === NOTES_SUBFOLDER) {
-        // Already has the subfolder, ensure directory exists
-        if (!fs.existsSync(trimmedPath)) {
-            try {
-                fs.mkdirSync(trimmedPath, { recursive: true });
-            } catch {
-                // Will be handled by caller when they try to use the directory
-            }
-        }
-        return trimmedPath;
-    }
-    
-    // Append the subfolder
-    const securePath = path.join(trimmedPath, NOTES_SUBFOLDER);
-    
-    // Create the directory if it doesn't exist
-    if (!fs.existsSync(securePath)) {
-        try {
-            fs.mkdirSync(securePath, { recursive: true });
-        } catch {
-            // Will be handled by caller when they try to use the directory
-        }
-    }
-    
-    return securePath;
+    return baseDir && baseDir.trim() !== '' ? baseDir.trim() : undefined;
 }
 

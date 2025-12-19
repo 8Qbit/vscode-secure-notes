@@ -13,7 +13,8 @@ Then, for reasons I can't fully explain, I got obsessed with having all notes en
 ## Features
 
 - 📁 **File Browser**: Tree view for organizing notes in directories
-- 🔐 **Hybrid Encryption**: RSA + AES-256-GCM encryption for secure storage
+- 🔐 **Per-File Encryption**: Encrypt individual files with RSA + AES-256-GCM
+- 🔓 **Mixed Content**: Store encrypted and unencrypted files side by side
 - 🔒 **HMAC Integrity**: Cryptographic verification to detect tampering
 - ⏱️ **Auto-Lock**: Configurable session timeout for automatic locking
 - 🖱️ **Drag & Drop**: Move files and folders with drag and drop
@@ -107,40 +108,37 @@ npm run compile
 
 1. Open Command Palette (`Ctrl+Shift+P`)
 2. Run `SecureNotes: Set Base Directory`
-3. Select a parent folder (e.g., your home directory or a cloud sync folder)
-4. The extension automatically creates a `VscodeSecureNotes` subfolder
+3. Select your notes folder
 
-> **🔒 Security**: Notes are always stored in a dedicated `VscodeSecureNotes` subfolder. This prevents accidentally encrypting important files if you select a broad directory.
+### 2. Generate Key Pair (For Encryption)
 
-### 2. Generate Key Pair (Optional)
-
-If you don't have an RSA key pair:
+If you want to encrypt files and don't have an RSA key pair:
 
 1. Open Command Palette (`Ctrl+Shift+P`)
 2. Run `SecureNotes: Generate Key Pair`
-3. Select a secure location to save the keys
+3. Select a secure location to save the keys (e.g., `~/.ssh`)
 4. Optionally enter a passphrase to protect your private key
 
-### 3. Enable Encryption
+### 3. Configure Encryption
 
 1. Open Settings (`Ctrl+,`)
 2. Search for "SecureNotes"
 3. Set `secureNotes.encryption.publicKeyPath` to your public key file
 4. Set `secureNotes.encryption.privateKeyPath` to your private key file
-5. Enable `secureNotes.encryption.enabled`
 
-### 4. Encrypt Existing Notes (Optional)
+### 4. Encrypt or Decrypt Individual Files
 
-1. Open Command Palette (`Ctrl+Shift+P`)
-2. Run `SecureNotes: Encrypt All Notes`
-3. Confirm the operation
+- **Encrypt a file**: Right-click any file → `Encrypt File`
+- **Remove encryption**: Right-click an encrypted file (🔒) → `Remove Encryption`
+- **Create encrypted file**: Right-click a folder → `New Encrypted Note`
+
+Encrypted files are shown with a 🔒 icon and can be opened just like regular files.
 
 ## Configuration
 
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `secureNotes.baseDirectory` | Directory for notes | (empty) |
-| `secureNotes.encryption.enabled` | Enable encryption | `false` |
 | `secureNotes.encryption.publicKeyPath` | Path to public key | (empty) |
 | `secureNotes.encryption.privateKeyPath` | Path to private key | (empty) |
 | `secureNotes.encryption.sessionTimeoutMinutes` | Auto-lock timeout (0 = disabled) | `30` |
@@ -150,11 +148,21 @@ If you don't have an RSA key pair:
 | Command | Description |
 |---------|-------------|
 | `SecureNotes: Set Base Directory` | Configure notes directory |
-| `SecureNotes: Unlock Notes` | Decrypt and access notes |
-| `SecureNotes: Lock Notes` | Clear decrypted data from memory |
+| `SecureNotes: Unlock Notes` | Decrypt session (enter passphrase) |
+| `SecureNotes: Lock Notes` | Clear decryption keys from memory |
 | `SecureNotes: Generate Key Pair` | Create new RSA keys |
-| `SecureNotes: Encrypt All Notes` | Encrypt all files in base directory |
-| `SecureNotes: Export Decrypted Notes` | Decrypt all notes to a directory |
+
+### Context Menu Commands
+
+| Command | Available On | Description |
+|---------|--------------|-------------|
+| `New Note` | Folders | Create a regular file |
+| `New Encrypted Note` | Folders | Create a new encrypted file |
+| `New Folder` | Folders | Create a subfolder |
+| `Encrypt File` | Regular files | Encrypt an existing file |
+| `Remove Encryption` | Encrypted files (🔒) | Permanently decrypt a file |
+| `Rename` | All items | Rename file or folder |
+| `Delete` | All items | Delete file or folder |
 
 ## Security Features
 
@@ -177,9 +185,9 @@ On Linux, decrypted files are stored in `/dev/shm` which is:
 - **Secure deletion**: Temp files are overwritten with zeros before deletion
 - **Memory clearing**: Keys are cleared from memory on lock
 
-### Directory Isolation
+### Path Validation
 
-Notes are always stored in a dedicated `VscodeSecureNotes` subfolder. Even if you accidentally select `/home` or `/mnt/c` as your base directory, your files are safe—only the `VscodeSecureNotes` folder is ever touched.
+All file operations are validated to ensure they stay within your notes directory, preventing path traversal attacks.
 
 ## File Format
 

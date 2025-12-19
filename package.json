@@ -29,12 +29,7 @@
         "secureNotes.baseDirectory": {
           "type": "string",
           "default": "",
-          "description": "The base directory for your secure notes"
-        },
-        "secureNotes.encryption.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable encryption for notes. When enabled, only *.enc files will be shown."
+          "description": "The base directory for your notes"
         },
         "secureNotes.encryption.publicKeyPath": {
           "type": "string",
@@ -79,6 +74,11 @@
         "icon": "$(new-file)"
       },
       {
+        "command": "secureNotes.createEncryptedFile",
+        "title": "New Encrypted Note",
+        "icon": "$(shield)"
+      },
+      {
         "command": "secureNotes.createFolder",
         "title": "New Folder",
         "icon": "$(new-folder)"
@@ -119,12 +119,14 @@
         "title": "SecureNotes: Generate Key Pair"
       },
       {
-        "command": "secureNotes.encryptDirectory",
-        "title": "SecureNotes: Encrypt All Notes"
+        "command": "secureNotes.encryptFile",
+        "title": "Encrypt File",
+        "icon": "$(lock)"
       },
       {
-        "command": "secureNotes.decryptDirectory",
-        "title": "SecureNotes: Export Decrypted Notes"
+        "command": "secureNotes.decryptFile",
+        "title": "Remove Encryption",
+        "icon": "$(unlock)"
       }
     ],
     "menus": {
@@ -146,7 +148,7 @@
         },
         {
           "command": "secureNotes.lock",
-          "when": "view == secureNotesTree && config.secureNotes.encryption.enabled",
+          "when": "view == secureNotesTree",
           "group": "navigation@4"
         }
       ],
@@ -157,18 +159,28 @@
           "group": "1_new@1"
         },
         {
-          "command": "secureNotes.createFolder",
+          "command": "secureNotes.createEncryptedFile",
           "when": "view == secureNotesTree && viewItem == folder",
           "group": "1_new@2"
         },
         {
-          "command": "secureNotes.rename",
-          "when": "view == secureNotesTree && viewItem != encryptedFile",
-          "group": "7_modification@1"
+          "command": "secureNotes.createFolder",
+          "when": "view == secureNotesTree && viewItem == folder",
+          "group": "1_new@3"
+        },
+        {
+          "command": "secureNotes.encryptFile",
+          "when": "view == secureNotesTree && viewItem == file",
+          "group": "2_encryption@1"
+        },
+        {
+          "command": "secureNotes.decryptFile",
+          "when": "view == secureNotesTree && viewItem == encryptedFile",
+          "group": "2_encryption@1"
         },
         {
           "command": "secureNotes.rename",
-          "when": "view == secureNotesTree && viewItem == encryptedFile",
+          "when": "view == secureNotesTree",
           "group": "7_modification@1"
         },
         {
@@ -180,6 +192,18 @@
       "commandPalette": [
         {
           "command": "secureNotes.openEncrypted",
+          "when": "false"
+        },
+        {
+          "command": "secureNotes.encryptFile",
+          "when": "false"
+        },
+        {
+          "command": "secureNotes.decryptFile",
+          "when": "false"
+        },
+        {
+          "command": "secureNotes.createEncryptedFile",
           "when": "false"
         }
       ]
