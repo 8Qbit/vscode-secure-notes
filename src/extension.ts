@@ -13,6 +13,7 @@ import { NotepadCommands } from './commands';
 import { NotepadDragAndDropController } from './notepadDragAndDrop';
 import { NotepadEncryption } from './encryption';
 import { TempFileManager } from './tempFileManager';
+import { AutoSaveManager } from './autoSaveManager';
 import { NoteItem } from './noteItem';
 import { logger, LogLevel } from './logger';
 import { 
@@ -61,6 +62,7 @@ function isInsecureKeyLocation(dirPath: string): boolean {
 // Global state
 let encryption: NotepadEncryption;
 let tempFileManager: TempFileManager | undefined;
+let autoSaveManager: AutoSaveManager | undefined;
 let outputChannel: vscode.OutputChannel;
 
 /**
@@ -133,6 +135,18 @@ export function activate(context: vscode.ExtensionContext) {
         dragAndDropController: dragAndDropController
     });
     context.subscriptions.push(treeView);
+
+    // Initialize autosave manager
+    autoSaveManager = new AutoSaveManager(
+        () => treeProvider.getBaseDirectory(),
+        () => tempFileManager?.getAllTempPaths() ?? []
+    );
+    context.subscriptions.push(autoSaveManager);
+
+    logger.info('AutoSaveManager initialized', 'Extension', {
+        enabled: autoSaveManager.isEnabled(),
+        delaySeconds: autoSaveManager.getDelaySeconds()
+    });
 
     // Create command handlers
     const commands = new NotepadCommands({
@@ -652,6 +666,12 @@ function showWelcomeMessage(treeProvider: NotepadTreeProvider): void {
  */
 export function deactivate() {
     logger.info('SecureNotes extension deactivating', 'Extension');
+
+    // Clean up autosave manager
+    if (autoSaveManager) {
+        autoSaveManager.dispose();
+        autoSaveManager = undefined;
+    }
 
     // Clean up temp files
     if (tempFileManager) {

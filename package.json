@@ -46,6 +46,18 @@
           "default": 30,
           "minimum": 0,
           "description": "Auto-lock timeout in minutes. Set to 0 to disable auto-lock."
+        },
+        "secureNotes.autosave.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic saving of notes after a period of inactivity"
+        },
+        "secureNotes.autosave.delaySeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 300,
+          "description": "Seconds of inactivity before automatically saving a document"
         }
       }
     },

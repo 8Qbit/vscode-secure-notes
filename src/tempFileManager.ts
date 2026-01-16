@@ -522,6 +522,14 @@ export class TempFileManager implements vscode.Disposable {
         });
     }
 
+    /**
+     * Get all currently active temp file paths.
+     * Used by AutoSaveManager to identify documents that should be autosaved.
+     */
+    getAllTempPaths(): string[] {
+        return Array.from(this.tempFiles.keys());
+    }
+
     // ========================================================================
     // Disposal
     // ========================================================================
