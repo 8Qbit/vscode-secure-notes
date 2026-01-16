@@ -343,21 +343,22 @@ The JSON format (version 2) in encrypted files must remain backwards compatible.
 
 This project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
 
-| Increment | When to Use | Example |
+| Increment | When to Use | Command |
 |-----------|-------------|---------|
-| **MAJOR** | Breaking changes, incompatible API | `2.0.0` → `3.0.0` |
-| **MINOR** | New features, backwards compatible | `2.0.1` → `2.1.0` |
-| **PATCH** | Bug fixes, backwards compatible | `2.0.0` → `2.0.1` |
+| **MAJOR** | Breaking changes, incompatible API | `npm version major` |
+| **MINOR** | New features, backwards compatible | `npm version minor` |
+| **PATCH** | Bug fixes, backwards compatible | `npm version patch` |
 
-Update `version` in `package.json`, then:
+Use `npm version` to bump — it updates `package.json`, `package-lock.json`, commits, and tags automatically:
+
 ```bash
-git add package.json
-git commit -m "Release vX.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
+npm version patch              # or minor/major
+git push origin main --tags    # Triggers GitHub Actions release
 ```
 
 GitHub Actions builds and creates the release automatically.
+
+**Asset naming**: Release assets should match the tag version (e.g., `secure-notes-v2.1.0.vsix` for tag `v2.1.0`).
 
 ## Questions? 
 

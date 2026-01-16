@@ -216,20 +216,16 @@ npm run test:coverage # Tests with coverage
 ### Creating a Release
 
 This project uses [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
-- **MAJOR**: Breaking changes
-- **MINOR**: New features (backwards compatible)
-- **PATCH**: Bug fixes (backwards compatible)
+- **MAJOR**: Breaking changes → `npm version major`
+- **MINOR**: New features (backwards compatible) → `npm version minor`
+- **PATCH**: Bug fixes (backwards compatible) → `npm version patch`
 
 ```bash
-# 1. Update version in package.json (following SemVer)
-# 2. Commit and tag
-git add package.json
-git commit -m "Release vX.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
+npm version patch              # Bumps version, commits, and tags automatically
+git push origin main --tags    # Triggers GitHub Actions release
 ```
 
-GitHub Actions will automatically build and create a release with the `.vsix` file.
+GitHub Actions will automatically build and create a release with the `.vsix` file named to match the tag (e.g., `secure-notes-v2.1.0.vsix`).
 
 ## Troubleshooting
 
