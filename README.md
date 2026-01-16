@@ -225,8 +225,6 @@ npm version patch              # Bumps version, commits, and tags automatically
 git push origin main --tags    # Triggers GitHub Actions release
 ```
 
-GitHub Actions will automatically build and create a release with the `.vsix` file named to match the tag (e.g., `secure-notes-v2.1.0.vsix`).
-
 ## Troubleshooting
 
 ### Extension not appearing
