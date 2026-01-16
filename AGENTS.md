@@ -341,6 +341,14 @@ The JSON format (version 2) in encrypted files must remain backwards compatible.
 
 ### Version Bumping
 
+This project follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+
+| Increment | When to Use | Example |
+|-----------|-------------|---------|
+| **MAJOR** | Breaking changes, incompatible API | `2.0.0` → `3.0.0` |
+| **MINOR** | New features, backwards compatible | `2.0.1` → `2.1.0` |
+| **PATCH** | Bug fixes, backwards compatible | `2.0.0` → `2.0.1` |
+
 Update `version` in `package.json`, then:
 ```bash
 git add package.json

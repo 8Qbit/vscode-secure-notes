@@ -215,8 +215,13 @@ npm run test:coverage # Tests with coverage
 
 ### Creating a Release
 
+This project uses [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
+- **MAJOR**: Breaking changes
+- **MINOR**: New features (backwards compatible)
+- **PATCH**: Bug fixes (backwards compatible)
+
 ```bash
-# 1. Update version in package.json
+# 1. Update version in package.json (following SemVer)
 # 2. Commit and tag
 git add package.json
 git commit -m "Release vX.Y.Z"
