@@ -2,7 +2,7 @@
   "name": "secure-notes",
   "displayName": "SecureNotes",
   "description": "A secure notes extension with encrypted storage and RSA+AES encryption",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "publisher": "panylund",
   "license": "MIT",
   "repository": {
