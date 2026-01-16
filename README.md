@@ -43,6 +43,12 @@ This was my first slightly larger fully vibe-coded project and all I have to say
 
 **Recommendation**: For maximum security, use Linux. On Windows/macOS, enable disk encryption (BitLocker, FileVault) for an additional layer of protection.
 
+## Prerequisites
+
+- **Node.js** 18.x or later
+- **npm** 8.x or later
+- **VS Code** or **Cursor** 1.85.0 or later
+
 ## Installation
 
 ### Option 1: Download from Releases (Recommended)
@@ -252,6 +258,18 @@ GitHub Actions will automatically build and create a release with the `.vsix` fi
 - [x] ~~Windows support~~ — v2.0.0
 - [x] ~~macOS support~~ — v2.0.0
 - [x] ~~Unit tests~~ — v2.0.0
+
+## Contributing
+
+Contributions welcome! Please:
+
+1. Read `AGENTS.md` for coding guidelines
+2. Follow existing patterns (logging, errors, path validation)
+3. Add tests for new functionality
+4. Ensure `npm run lint` passes
+5. Test manually with F5 (Extension Development Host)
+
+**Security-sensitive code** (encryption, file operations) requires extra care — see the security sections in `AGENTS.md`.
 
 ## License
 

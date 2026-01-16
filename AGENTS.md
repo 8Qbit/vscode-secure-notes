@@ -1,6 +1,28 @@
 # AGENTS.md
 
-Instructions for AI agents working on this codebase.
+Behavioral guidelines for AI agents working on this codebase.
+
+## Before You Start
+
+1. **Read `PROJECT_CONTEXT.md` first** — Contains architecture, data flow, and conventions
+2. **Understand the security model** — This extension handles encryption; mistakes can cause data loss
+3. **Check existing patterns** — The codebase has established patterns for errors, logging, and validation
+
+## Working Efficiently
+
+- **Use semantic search** for "how does X work?" questions — don't read entire files
+- **Start narrow**: search in specific files/directories when you know where to look
+- **Large files**: `extension.ts` (~700 lines), `encryption.ts` (~500 lines) — use targeted searches
+- **Tests reveal behavior**: Check `src/__tests__/` for usage examples
+
+## Simplicity Guidelines
+
+- **No unnecessary abstractions** — Solve the actual problem directly
+- **Reuse existing utilities** — Check `fileUtils.ts`, `errors.ts`, `logger.ts` before creating new helpers
+- **Follow existing patterns** — Don't introduce new architectural patterns without good reason
+- **Avoid over-engineering** — A bug fix doesn't need surrounding code "cleanup"
+
+---
 
 ## Project Overview
 
@@ -231,7 +253,107 @@ Any changes must maintain backward compatibility with existing `.enc` files.
 - `vscode.workspace.registerFileSystemProvider()` - VFS for cross-platform
 - `vscode.SecretStorage` - Store secrets (could replace key file approach)
 
+## Testing
+
+### Running Tests
+
+```bash
+npm test                 # Run all tests
+npm run test:coverage    # Tests with coverage report
+npm run test:watch       # Watch mode for development
+```
+
+### What to Test
+
+| Type | Location | Pattern |
+|------|----------|---------|
+| Encryption | `encryption.test.ts` | Round-trip encrypt/decrypt, edge cases |
+| File Utils | `fileUtils.test.ts` | Path validation, secure delete |
+| Temp Storage | `secureTempStorage.test.ts` | Platform detection, file I/O |
+| Autosave | `autoSaveManager.test.ts` | Debouncing, document tracking |
+
+### Testing Pattern
+
+```typescript
+describe('ClassName', () => {
+    beforeEach(() => { /* setup */ });
+    afterEach(() => { /* cleanup */ });
+    
+    it('should do something specific', () => {
+        // Arrange
+        // Act
+        // Assert
+    });
+});
+```
+
+### Manual Testing
+
+Press **F5** in VS Code/Cursor to launch Extension Development Host.
+
+## Common Pitfalls
+
+### 1. Forgetting Path Validation
+**Wrong:**
+```typescript
+fs.unlinkSync(item.actualPath);  // ❌ No validation
+```
+**Right:**
+```typescript
+validatePathWithinBase(item.actualPath, baseDir);  // ✅
+fs.unlinkSync(item.actualPath);
+```
+
+### 2. Using console.log Instead of Logger
+**Wrong:** `console.log('debug info');`
+**Right:** `logger.debug('debug info', { context });`
+
+### 3. Not Implementing Disposable
+Any class that holds resources (watchers, timers, event subscriptions) must implement `vscode.Disposable` and be added to `context.subscriptions`.
+
+### 4. Hardcoding Permissions
+**Wrong:** `fs.writeFileSync(path, data, { mode: 0o600 });`
+**Right:** `fs.writeFileSync(path, data, { mode: SECURE_FILE_PERMISSIONS.PRIVATE });`
+
+### 5. Breaking Encryption Format Compatibility
+The JSON format (version 2) in encrypted files must remain backwards compatible. Never remove fields, only add optional ones.
+
+### 6. Ignoring Platform Differences
+- `/dev/shm` only exists on Linux
+- File permissions work differently on Windows
+- Use `SecureTempStorage` abstraction, not direct paths
+
+## Maintenance
+
+### After Structural Changes
+
+1. **Update `PROJECT_CONTEXT.md`** — Architecture diagram, key abstractions
+2. **Update `README.md`** — If user-facing behavior changed
+3. **Update this file** — If new patterns or pitfalls emerged
+
+### Adding New Commands
+
+1. Add to `package.json` → `contributes.commands`
+2. Add menu entry → `contributes.menus` (if applicable)
+3. Implement handler in `commands.ts`
+4. Register in `extension.ts` → `registerCommands()`
+5. Add path validation if file operation
+
+### Version Bumping
+
+Update `version` in `package.json`, then:
+```bash
+git add package.json
+git commit -m "Release vX.Y.Z"
+git tag vX.Y.Z
+git push origin main --tags
+```
+
+GitHub Actions builds and creates the release automatically.
+
 ## Questions? 
 
-Check the README for user-facing documentation. For implementation details, the code is well-commented.
+- **User-facing docs**: See `README.md`
+- **Architecture quick-ref**: See `PROJECT_CONTEXT.md`
+- **Implementation details**: Code is well-commented
 
