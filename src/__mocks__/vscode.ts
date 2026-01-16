@@ -21,22 +21,57 @@ const createConfigGetter = () => (key: string, defaultValue?: unknown) => {
     return mockConfigValues[shortKey] ?? mockConfigValues[key] ?? defaultValue;
 };
 
+// EventEmitter class - must be declared before it's used
+export class EventEmitter<T> {
+    private listeners: ((e: T) => void)[] = [];
+    
+    event = (listener: (e: T) => void) => {
+        this.listeners.push(listener);
+        return { dispose: () => {} };
+    };
+    
+    fire(e: T) {
+        this.listeners.forEach(l => l(e));
+    }
+    
+    dispose() {
+        this.listeners = [];
+    }
+}
+
+// Event emitters for testing - allow tests to fire events
+export const workspaceEventEmitters = {
+    onDidChangeConfiguration: new EventEmitter<{ affectsConfiguration: (section: string) => boolean }>(),
+    onDidSaveTextDocument: new EventEmitter<{ uri: { fsPath: string }; isDirty: boolean }>(),
+    onDidCloseTextDocument: new EventEmitter<{ uri: { fsPath: string } }>(),
+    onDidChangeTextDocument: new EventEmitter<{ document: { uri: { fsPath: string }; isDirty: boolean; isUntitled: boolean; isClosed: boolean; save: () => Promise<boolean> } }>(),
+};
+
 export const workspace = {
     getConfiguration: jest.fn((_section?: string) => ({
         get: createConfigGetter(),
         update: jest.fn(),
     })),
     openTextDocument: jest.fn(),
-    textDocuments: [],
+    textDocuments: [] as Array<{ uri: { fsPath: string }; isDirty: boolean; isUntitled: boolean; isClosed: boolean; save: () => Promise<boolean> }>,
     createFileSystemWatcher: jest.fn(() => ({
         onDidCreate: jest.fn(),
         onDidChange: jest.fn(),
         onDidDelete: jest.fn(),
         dispose: jest.fn(),
     })),
-    onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
-    onDidSaveTextDocument: jest.fn(() => ({ dispose: jest.fn() })),
-    onDidCloseTextDocument: jest.fn(() => ({ dispose: jest.fn() })),
+    onDidChangeConfiguration: jest.fn((listener: (e: { affectsConfiguration: (section: string) => boolean }) => void) => {
+        return workspaceEventEmitters.onDidChangeConfiguration.event(listener);
+    }),
+    onDidSaveTextDocument: jest.fn((listener: (doc: unknown) => void) => {
+        return workspaceEventEmitters.onDidSaveTextDocument.event(listener);
+    }),
+    onDidCloseTextDocument: jest.fn((listener: (doc: unknown) => void) => {
+        return workspaceEventEmitters.onDidCloseTextDocument.event(listener);
+    }),
+    onDidChangeTextDocument: jest.fn((listener: (e: unknown) => void) => {
+        return workspaceEventEmitters.onDidChangeTextDocument.event(listener);
+    }),
 };
 
 export const window = {
@@ -82,23 +117,6 @@ export class TreeItem {
     constructor(label: string, collapsibleState: TreeItemCollapsibleState = TreeItemCollapsibleState.None) {
         this.label = label;
         this.collapsibleState = collapsibleState;
-    }
-}
-
-export class EventEmitter<T> {
-    private listeners: ((e: T) => void)[] = [];
-    
-    event = (listener: (e: T) => void) => {
-        this.listeners.push(listener);
-        return { dispose: () => {} };
-    };
-    
-    fire(e: T) {
-        this.listeners.forEach(l => l(e));
-    }
-    
-    dispose() {
-        this.listeners = [];
     }
 }
 
@@ -162,4 +180,3 @@ export enum ProgressLocation {
     Window = 10,
     SourceControl = 1,
 }
-
